@@ -1,8 +1,8 @@
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { Image, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator, Alert, Platform, SafeAreaView } from "react-native";
-import { useState } from "react";
-import * as ImagePicker from "expo-image-picker";
 import Entypo from '@expo/vector-icons/Entypo';
+import * as ImagePicker from "expo-image-picker";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useState } from "react";
+import { ActivityIndicator, Alert, Image, Platform, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 export default function PreviewScreen() {
   const { uri } = useLocalSearchParams<{ uri: string }>();
@@ -14,7 +14,7 @@ export default function PreviewScreen() {
     if (!currentImageUri) return;
     try {
       setIsUploading(true);
-      const rawEnv = process.env.EXPO_PUBLIC_API_URL || "http://10.195.201.57:8000";
+      const rawEnv = process.env.EXPO_PUBLIC_API_URL || "https://carciscan-api-production.up.railway.app/";
       if (!rawEnv) {
         Alert.alert("Missing API URL", "Set EXPO_PUBLIC_API_URL in your env.");
         return;
@@ -22,7 +22,8 @@ export default function PreviewScreen() {
       const endpoint = normalizePredictUrl(rawEnv);
 
       const form = new FormData();
-      form.append("image", {
+      // API expects the file field to be named `file`
+      form.append("file", {
         uri: currentImageUri,
         name: "scan.jpg",
         type: "image/jpeg"
@@ -30,7 +31,8 @@ export default function PreviewScreen() {
 
       const res = await fetchWithTimeout(endpoint, {
         method: "POST",
-        headers: { Accept: "application/json", "Content-Type": "multipart/form-data" },
+        // Let fetch set the Content-Type (with boundary) for multipart form data
+        headers: { Accept: "application/json" },
         body: form
       }, 60_000);
 
@@ -115,7 +117,7 @@ export default function PreviewScreen() {
           <Text style={styles.buttonTextSecondary}>Retake</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={upload} style={[styles.button, styles.primary]} disabled={isUploading}>
-          {isUploading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonTextPrimary}>Send to API</Text>}
+          {isUploading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonTextPrimary}>Analyze</Text>}
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -127,8 +129,9 @@ export default function PreviewScreen() {
 function normalizePredictUrl(input: string) {
   try {
     const url = new URL(translateLocalhostForEmulator(input));
-    if (!/\/api\/v1\/predict\/?$/.test(url.pathname)) {
-      url.pathname = url.pathname.replace(/\/?$/, "/api/v1/predict");
+    // Ensure we point to the image prediction endpoint
+    if (!/\/api\/v1\/predict\/predict\/?$/.test(url.pathname)) {
+      url.pathname = url.pathname.replace(/\/?$/, "/api/v1/predict/predict");
     }
     return url.toString();
   } catch {

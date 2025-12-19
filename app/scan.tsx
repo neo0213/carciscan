@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from "react";
-import { Alert, StyleSheet, Text, TouchableOpacity, View, SafeAreaView } from "react-native";
-import { useRouter } from "expo-router";
-import { CameraView, useCameraPermissions } from "expo-camera";
 import { Ionicons } from "@expo/vector-icons";
-import * as ImagePicker from "expo-image-picker";
 import Entypo from '@expo/vector-icons/Entypo';
+import { CameraView, useCameraPermissions } from "expo-camera";
+import * as ImagePicker from "expo-image-picker";
+import { useRouter } from "expo-router";
+import { useEffect, useRef, useState } from "react";
+import { Alert, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 export default function ScanScreen() {
   const router = useRouter();
@@ -103,7 +103,7 @@ export default function ScanScreen() {
           <Text style={styles.brand}>CarciScan</Text>
           <Text style={styles.helper}>Align the label within the frame</Text>
         </View>
-        <View style={styles.frame} />
+        {/* frame overlay removed per request */}
         <View style={styles.controls}>
           <TouchableOpacity onPress={pickImage} style={styles.iconButton} accessibilityLabel="Pick from library">
             <Ionicons name="images" size={26} color="#0B4C8C" />

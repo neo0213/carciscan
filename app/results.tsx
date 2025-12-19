@@ -1,8 +1,8 @@
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { StyleSheet, Text, TouchableOpacity, View, ScrollView, SafeAreaView } from "react-native";
-import { useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import Entypo from '@expo/vector-icons/Entypo';
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useState } from "react";
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Linking, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 
 export default function ResultsScreen() {
   const { apiResult, resultText } = useLocalSearchParams<{ 
@@ -13,6 +13,8 @@ export default function ResultsScreen() {
   const [expandedIngredients, setExpandedIngredients] = useState<Set<number>>(new Set());
 
   const parsedApiResult = apiResult ? JSON.parse(apiResult) : null;
+  const [ocrTextEditable, setOcrTextEditable] = useState<string>(parsedApiResult?.ocr_result?.text ?? '');
+  const [isSubmittingText, setIsSubmittingText] = useState(false);
 
   const toggleIngredient = (index: number) => {
     const newExpanded = new Set(expandedIngredients);
@@ -33,9 +35,20 @@ export default function ResultsScreen() {
     }
   };
 
+  const getGroupBadgeColor = (group: string) => {
+    const g = String(group).toLowerCase();
+    if (g.includes('1')) return '#EF4444';
+    if (g.includes('2b') || g.includes('2b'.toLowerCase()) || g.includes('2')) return '#F59E0B';
+    if (g.includes('3')) return '#10B981';
+    return '#6B7280';
+  };
+
   const renderIngredientCard = (ingredient: any, index: number) => {
     const isExpanded = expandedIngredients.has(index);
-    const predictionColor = getPredictionColor(ingredient.prediction);
+    // New API returns prediction details under `prediction_details`
+    const group = ingredient?.prediction_details?.carcinogenicity_group ?? ingredient?.status ?? 'Unknown';
+    const prediction = String(group);
+    const predictionColor = getGroupBadgeColor(prediction);
     
     return (
       <TouchableOpacity
@@ -46,9 +59,14 @@ export default function ResultsScreen() {
       >
         <View style={styles.ingredientHeader}>
           <View style={styles.ingredientNameContainer}>
-            <Text style={styles.ingredientName}>{ingredient.name}</Text>
+            <View style={{flex:1}}>
+              <Text style={styles.ingredientName}>{String(ingredient.name).toUpperCase()}</Text>
+              {ingredient.matched_name ? (
+                <Text style={styles.matchedName}>({ingredient.matched_name})</Text>
+              ) : null}
+            </View>
             <View style={[styles.predictionBadge, { backgroundColor: predictionColor }]}>
-              <Text style={styles.predictionText}>{ingredient.prediction}</Text>
+              <Text style={styles.predictionText}>{String(prediction).toUpperCase()}</Text>
             </View>
           </View>
           <Ionicons 
@@ -62,12 +80,43 @@ export default function ResultsScreen() {
           <View style={styles.ingredientDetails}>
             <View style={styles.detailRow}>
               <Text style={styles.detailLabel}>Confidence:</Text>
-              <Text style={styles.detailValue}>{(ingredient.confidence * 100).toFixed(1)}%</Text>
+              {
+                (() => {
+                  const raw = ingredient?.prediction_details?.confidence ?? ingredient?.confidence ?? null;
+                  if (raw === null || raw === undefined) return <Text style={styles.detailValue}>N/A</Text>;
+                  const num = Number(raw);
+                  const percent = num <= 1 ? (num * 100) : num; // support 0-1 or 0-100
+                  return <Text style={styles.detailValue}>{percent.toFixed(1)}%</Text>;
+                })()
+              }
             </View>
-            {ingredient.properties && Object.keys(ingredient.properties).length > 0 && (
+
+            {ingredient?.prediction_details?.evidence && (
               <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Properties:</Text>
-                <Text style={styles.detailValue}>{JSON.stringify(ingredient.properties, null, 2)}</Text>
+                <Text style={styles.detailLabel}>Evidence:</Text>
+                <Text style={styles.detailValue}>{ingredient.prediction_details.evidence}</Text>
+              </View>
+            )}
+
+            {ingredient?.matched_name && (
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Matched name:</Text>
+                <Text style={styles.detailValue}>{ingredient.matched_name}</Text>
+              </View>
+            )}
+
+            {ingredient?.pubchem_url && (
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>PubChem:</Text>
+                <TouchableOpacity onPress={() => openLink(ingredient.pubchem_url)} accessibilityRole="link" style={{flex: 1}}>
+                  <Text
+                    style={[styles.detailValue, styles.linkText]}
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                  >
+                    {ingredient.pubchem_url}
+                  </Text>
+                </TouchableOpacity>
               </View>
             )}
           </View>
@@ -75,6 +124,73 @@ export default function ResultsScreen() {
       </TouchableOpacity>
     );
   };
+
+  async function submitEditedText() {
+    if (!ocrTextEditable || ocrTextEditable.trim().length === 0) {
+      Alert.alert('Validation', 'Please enter text to analyze.');
+      return;
+    }
+
+    try {
+      setIsSubmittingText(true);
+      const rawEnv = process.env.EXPO_PUBLIC_API_URL || 'https://carciscan-api-production.up.railway.app/';
+      const endpoint = normalizePredictTextUrl(rawEnv);
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), 60_000);
+
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: ocrTextEditable }),
+        signal: controller.signal
+      });
+      clearTimeout(id);
+
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const json = await res.json();
+        if (!res.ok) throw new Error(json?.message || 'Request failed');
+        router.replace({ pathname: '/results', params: { apiResult: JSON.stringify(json), resultText: JSON.stringify(json, null, 2) } });
+      } else {
+        const text = await res.text();
+        if (!res.ok) throw new Error(text || 'Request failed');
+        router.replace({ pathname: '/results', params: { resultText: text } });
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'Please try again.');
+    } finally {
+      setIsSubmittingText(false);
+    }
+  }
+
+  const openLink = async (url?: string) => {
+    if (!url) return;
+    try {
+      const u = String(url).startsWith('http') ? url : `https://${url}`;
+      await Linking.openURL(u);
+    } catch (e) {
+      Alert.alert('Unable to open link');
+    }
+  };
+
+  function normalizePredictTextUrl(input: string) {
+    try {
+      const url = new URL(translateLocalhostForEmulator(input));
+      if (!/\/api\/v1\/predict\/predict-text\/?$/.test(url.pathname)) {
+        url.pathname = url.pathname.replace(/\/?$/, '/api/v1/predict/predict-text');
+      }
+      return url.toString();
+    } catch {
+      return input;
+    }
+  }
+
+  function translateLocalhostForEmulator(input: string) {
+    if (Platform.OS === 'android') {
+      return input.replace('http://localhost', 'http://10.0.2.2').replace('http://127.0.0.1', 'http://10.0.2.2');
+    }
+    return input;
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -91,30 +207,86 @@ export default function ResultsScreen() {
         <View style={styles.headerSpacer} />
       </View>
 
-      <ScrollView style={styles.content}>
+      <ScrollView style={styles.content} keyboardShouldPersistTaps="handled">
         {parsedApiResult ? (
           <View>
-            {parsedApiResult.message && (
-              <Text style={styles.resultMessage}>{parsedApiResult.message}</Text>
-            )}
-            {parsedApiResult.processing_time && (
-              <Text style={styles.processingTime}>Processed in {parsedApiResult.processing_time.toFixed(2)}s</Text>
-            )}
-            
-            {parsedApiResult.ingredients && parsedApiResult.ingredients.length > 0 && (
-              <View style={styles.ingredientsSection}>
-                <Text style={styles.sectionTitle}>Ingredients Analysis</Text>
-                {parsedApiResult.ingredients.map((ingredient: any, index: number) => 
-                  renderIngredientCard(ingredient, index)
+            {parsedApiResult.practical_advice && (
+              <View style={styles.adviceCard}>
+                <Text style={styles.adviceTitle}>Practical Advice</Text>
+                {Array.isArray(parsedApiResult.practical_advice?.route_advice) ? (
+                  parsedApiResult.practical_advice.route_advice.map((line: string, i: number) => (
+                    <Text key={i} style={styles.adviceLine}>{line}</Text>
+                  ))
+                ) : (
+                  <Text style={styles.adviceLine}>{parsedApiResult.practical_advice?.iarc_definition ?? ''}</Text>
                 )}
               </View>
             )}
-            
+
+            <Text style={styles.analysisComplete}>Analysis complete.</Text>
+            {parsedApiResult.processing_time && (
+              <Text style={styles.processingTime}>Processed in {parsedApiResult.processing_time.toFixed(2)}s</Text>
+            )}
+
+            {parsedApiResult.ingredients && parsedApiResult.ingredients.length > 0 && (() => {
+              const all = parsedApiResult.ingredients || [];
+              const detected = all.filter((i: any) => !!i.matched_name);
+              const undetected = all.filter((i: any) => !i.matched_name);
+
+              return (
+                <>
+                  {detected.length > 0 && (
+                    <View style={styles.ingredientsSection}>
+                      <Text style={styles.sectionTitle}>Detected Ingredients</Text>
+                      {detected.map((ingredient: any, index: number) => renderIngredientCard(ingredient, index))}
+                    </View>
+                  )}
+
+                  {undetected.length > 0 && (
+                    <View style={styles.ingredientsSection}>
+                      <Text style={styles.sectionTitle}>Undetected Ingredients</Text>
+                      {undetected.map((ingredient: any, index: number) => (
+                        <View key={index} style={styles.ingredientCard}>
+                          <View style={styles.ingredientHeader}>
+                            <View style={styles.ingredientNameContainer}>
+                              <View style={{flex:1}}>
+                                <Text style={styles.ingredientName}>{String(ingredient.name).toUpperCase()}</Text>
+                                {ingredient.matched_name ? <Text style={styles.matchedName}>({ingredient.matched_name})</Text> : null}
+                              </View>
+                              <View style={styles.undetectedBadge}>
+                                <Text style={styles.undetectedBadgeText}>SYNONYM NOT FOUND IN DATABASE</Text>
+                              </View>
+                            </View>
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                </>
+              );
+            })()}
+
             {parsedApiResult.ocr_result && (
-              <View style={styles.ocrSection}>
+              <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 80}
+                style={styles.ocrSection}
+              >
                 <Text style={styles.sectionTitle}>OCR Text</Text>
-                <Text style={styles.ocrText}>{parsedApiResult.ocr_result.text}</Text>
-              </View>
+                <TextInput
+                  style={styles.ocrTextInput}
+                  value={ocrTextEditable}
+                  onChangeText={setOcrTextEditable}
+                  multiline
+                  textAlignVertical="top"
+                />
+
+                <View style={{marginTop: 12, flexDirection: 'row', justifyContent: 'flex-end'}}>
+                  <TouchableOpacity style={[styles.buttonSmall, styles.primarySmall]} onPress={submitEditedText} disabled={isSubmittingText}>
+                    {isSubmittingText ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonSmallText}>Re-analyze text</Text>}
+                  </TouchableOpacity>
+                </View>
+              </KeyboardAvoidingView>
             )}
           </View>
         ) : resultText ? (
@@ -184,6 +356,34 @@ const styles = StyleSheet.create({
     fontSize: 20, 
     marginBottom: 16 
   },
+  adviceCard: {
+    backgroundColor: '#111827',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#0F1724'
+  },
+  adviceTitle: {
+    color: '#F3F4F6',
+    fontWeight: '700',
+    fontSize: 18,
+    marginBottom: 8
+  },
+  adviceLine: {
+    color: '#D1D5DB',
+    fontSize: 14,
+    marginBottom: 8
+  },
+  analysisComplete: {
+    color: '#E5E7EB',
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 4
+  },
+  buttonSmall: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 },
+  primarySmall: { backgroundColor: '#0EA5E9' },
+  buttonSmallText: { color: '#fff', fontWeight: '600' },
   ingredientCard: { 
     backgroundColor: "#1F2937", 
     borderRadius: 12, 
@@ -212,10 +412,18 @@ const styles = StyleSheet.create({
     fontSize: 16, 
     flex: 1 
   },
+  matchedName: {
+    color: '#9CA3AF',
+    fontSize: 13,
+    marginTop: 4
+  },
   predictionBadge: { 
     paddingHorizontal: 12, 
     paddingVertical: 6, 
-    borderRadius: 16 
+    borderRadius: 16,
+    minWidth: 90,
+    alignItems: 'center',
+    justifyContent: 'center'
   },
   predictionText: { 
     color: "#FFFFFF", 
@@ -241,19 +449,42 @@ const styles = StyleSheet.create({
   detailValue: { 
     color: "#D1D5DB", 
     fontSize: 14, 
-    flex: 1 
+    flex: 1,
+    flexShrink: 1,
+    flexWrap: 'wrap'
+  },
+  linkText: {
+    color: '#60A5FA',
+    textDecorationLine: 'underline',
+    flexShrink: 1,
+    flexWrap: 'wrap'
   },
   ocrSection: { 
     marginBottom: 24 
   },
-  ocrText: { 
-    color: "#D1D5DB", 
-    fontSize: 14, 
-    backgroundColor: "#1F2937", 
-    padding: 16, 
-    borderRadius: 8, 
+  ocrTextInput: {
+    color: "#D1D5DB",
+    fontSize: 14,
+    backgroundColor: "#1F2937",
+    padding: 12,
+    borderRadius: 8,
     fontFamily: "monospace",
-    lineHeight: 20
+    lineHeight: 20,
+    minHeight: 120
+  },
+  undetectedBadge: {
+    backgroundColor: '#374151',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    minWidth: 140
+  },
+  undetectedBadgeText: {
+    color: '#E5E7EB',
+    fontSize: 12,
+    fontWeight: '700'
   },
   rawResultBox: {
     backgroundColor: "#1F2937",

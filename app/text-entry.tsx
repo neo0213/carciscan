@@ -1,40 +1,104 @@
-import { useEffect, useRef, useState } from "react";
-import { Alert, StyleSheet, Text, TouchableOpacity, View, SafeAreaView, TextInput, ActivityIndicator } from "react-native";
-import { useRouter } from "expo-router";
-import { CameraView, useCameraPermissions } from "expo-camera";
-import { Ionicons } from "@expo/vector-icons";
-import * as ImagePicker from "expo-image-picker";
 import Entypo from '@expo/vector-icons/Entypo';
+import { useRouter } from "expo-router";
+import { useState } from "react";
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, SafeAreaView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 
 export default function TextEntryScreen() {
   const router = useRouter();
   const [isUploading, setIsUploading] = useState(false);
+  const [textValue, setTextValue] = useState("");
+
+  const sendText = async () => {
+    if (!textValue || textValue.trim().length === 0) {
+      Alert.alert('Validation', 'Please enter some text to analyze.');
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+      const rawEnv = process.env.EXPO_PUBLIC_API_URL || "https://carciscan-api-production.up.railway.app/";
+      const endpoint = normalizePredictTextUrl(rawEnv);
+
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), 60_000);
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: textValue }),
+        signal: controller.signal
+      });
+      clearTimeout(id);
+
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const json = await res.json();
+        if (!res.ok) throw new Error(json?.message || 'Request failed');
+        router.push({ pathname: '/results', params: { apiResult: JSON.stringify(json), resultText: JSON.stringify(json, null, 2) } });
+      } else {
+        const text = await res.text();
+        if (!res.ok) throw new Error(text || 'Request failed');
+        router.push({ pathname: '/results', params: { resultText: text } });
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'Please try again.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  function normalizePredictTextUrl(input: string) {
+    try {
+      const url = new URL(translateLocalhostForEmulator(input));
+      if (!/\/api\/v1\/predict\/predict-text\/?$/.test(url.pathname)) {
+        url.pathname = url.pathname.replace(/\/?$/, '/api/v1/predict/predict-text');
+      }
+      return url.toString();
+    } catch {
+      return input;
+    }
+  }
+
+  function translateLocalhostForEmulator(input: string) {
+    if (Platform.OS === 'android') {
+      return input.replace('http://localhost', 'http://10.0.2.2').replace('http://127.0.0.1', 'http://10.0.2.2');
+    }
+    return input;
+  }
 
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Custom Header */}
-      <View style={styles.header}>
-        <TouchableOpacity 
-          onPress={() => router.back()} 
-          style={styles.backButton}
-          accessibilityLabel="Go back"
-        >
-          <Entypo name="chevron-left" size={24} color="#0B4C8C" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Text Entry</Text>
-        <View style={styles.headerSpacer} />
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{flex: 1}} keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 80}>
+        {/* Custom Header */}
+        <View style={styles.header}>
+          <TouchableOpacity 
+            onPress={() => router.back()} 
+            style={styles.backButton}
+            accessibilityLabel="Go back"
+          >
+            <Entypo name="chevron-left" size={24} color="#0B4C8C" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Text Entry</Text>
+          <View style={styles.headerSpacer} />
+        </View>
 
+        <View style={styles.content}>
+          <TextInput
+            style={styles.textInput}
+            placeholder="Enter Ingredients"
+            placeholderTextColor="#9CA3AF"
+            value={textValue}
+            onChangeText={setTextValue}
+            multiline
+          />
+        </View>
 
-      </View>
-
-      <View style={styles.content}>
-      <TextInput style={styles.textInput} placeholder="Enter Ingredients" />
-      </View>
-
-      <TouchableOpacity style={[styles.button, styles.primary]} disabled={isUploading}>
-          {isUploading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonTextPrimary}>Send to API</Text>}
-        </TouchableOpacity>
+        <View style={styles.footer}>
+          <TouchableOpacity onPress={sendText} style={[styles.button, styles.primary]} disabled={isUploading}>
+            {isUploading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonTextPrimary}>Analyze</Text>}
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -142,6 +206,7 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 16
   },
+  footer: { padding: 16, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#111827', backgroundColor: '#000' },
   button: { height: 48, borderRadius: 12, paddingHorizontal: 20, alignItems: "center", justifyContent: "center", minWidth: 120 },
   primary: { backgroundColor: "#0EA5E9" },
   buttonTextPrimary: { color: "#ffffff", fontWeight: "600" },
