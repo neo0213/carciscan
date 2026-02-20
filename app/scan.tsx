@@ -29,10 +29,10 @@ export default function ScanScreen() {
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [4, 3],
-        quality: 0.8,
+        quality: 1
       });
 
       if (!result.canceled && result.assets[0]) {
@@ -52,9 +52,11 @@ export default function ScanScreen() {
     try {
       setIsCapturing(true);
       const photo = await cameraRef.current.takePictureAsync({ 
-        quality: 0.8
+        quality: 1
        });
+       console.log("Photo captured:", photo.uri);
       router.push({ pathname: "/preview", params: { uri: photo.uri } });
+
     } catch (e) {
       Alert.alert("Capture failed", "Please try again.");
     } finally {
@@ -122,7 +124,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#000" },
   header: {
     flexDirection: "row",
-    alignItems: "center",
+      alignItems: "center",
+    marginTop: 20,
     paddingHorizontal: 16,
     paddingVertical: 12,
     backgroundColor: "#000"

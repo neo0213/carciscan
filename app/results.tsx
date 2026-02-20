@@ -26,6 +26,22 @@ export default function ResultsScreen() {
     setExpandedIngredients(newExpanded);
   };
 
+
+    const [expandedUndetected, setExpandedUndetected] = useState<Set<number>>(new Set());
+
+    const toggleUndetected = (index: number) => {
+        const newExpanded = new Set(expandedUndetected);
+        if (newExpanded.has(index)) newExpanded.delete(index);
+        else newExpanded.add(index);
+        setExpandedUndetected(newExpanded);
+    };
+
+    const [undetectedExpanded, setUndetectedExpanded] = useState(false);
+
+    const toggleUndetectedSection = () => {
+        setUndetectedExpanded(prev => !prev);
+    };
+
   const getPredictionColor = (prediction: string) => {
     switch (prediction.toLowerCase()) {
       case 'carcinogenic': return '#EF4444';
@@ -43,12 +59,29 @@ export default function ResultsScreen() {
     return '#6B7280';
   };
 
+//to change the label of detected ingredients
+  const getGroupLabel = (group: string) => {
+  const g = group.toLowerCase();
+
+  if (g.includes('1')) return 'LIKELY CARCINOGENIC';
+  if (g.includes('2a')) return 'LIKELY CARCINOGENIC';
+  if (g.includes('2b')) return 'NOT LIKELY CARCINOGENIC';
+  if (g.includes('2')) return 'LIKELY CARCINOGENIC'
+  if (g.includes('3')) return 'NOT LIKELY CARCINOGENIC';
+
+  return 'UNKNOWN';
+};
+
   const renderIngredientCard = (ingredient: any, index: number) => {
     const isExpanded = expandedIngredients.has(index);
     // New API returns prediction details under `prediction_details`
     const group = ingredient?.prediction_details?.carcinogenicity_group ?? ingredient?.status ?? 'Unknown';
-    const prediction = String(group);
-    const predictionColor = getGroupBadgeColor(prediction);
+    //const prediction = String(group);
+
+      const prediction = getGroupLabel(String(group));
+
+      const predictionColor = getGroupBadgeColor(String(group));
+
     
     return (
       <TouchableOpacity
@@ -210,18 +243,24 @@ export default function ResultsScreen() {
       <ScrollView style={styles.content} keyboardShouldPersistTaps="handled">
         {parsedApiResult ? (
           <View>
-            {parsedApiResult.practical_advice && (
-              <View style={styles.adviceCard}>
-                <Text style={styles.adviceTitle}>Practical Advice</Text>
-                {Array.isArray(parsedApiResult.practical_advice?.route_advice) ? (
-                  parsedApiResult.practical_advice.route_advice.map((line: string, i: number) => (
-                    <Text key={i} style={styles.adviceLine}>{line}</Text>
-                  ))
-                ) : (
-                  <Text style={styles.adviceLine}>{parsedApiResult.practical_advice?.iarc_definition ?? ''}</Text>
-                )}
-              </View>
-            )}
+                       {/*     practical advice  */}
+                      {parsedApiResult.practical_advice && (
+                          <View style={styles.adviceCard}>
+                              <Text style={styles.adviceTitle}>Practical Advice</Text>
+
+                              {/* Hazard */}
+                              <Text style={styles.hazardText}>
+                                  Hazard Level: {parsedApiResult.practical_advice.hazard_level}
+                              </Text>
+
+                              {/* Category Advice */}
+                              <Text style={styles.adviceLine}>
+                                  {parsedApiResult.practical_advice.category_advice}
+                              </Text>
+                          </View>
+                      )}
+
+
 
             <Text style={styles.analysisComplete}>Analysis complete.</Text>
             {parsedApiResult.processing_time && (
@@ -229,9 +268,35 @@ export default function ResultsScreen() {
             )}
 
             {parsedApiResult.ingredients && parsedApiResult.ingredients.length > 0 && (() => {
+            //to make the detected carcinogen at the top of the list 
+              const getCarcinogenicPriority = (ingredient: any) => {
+              const group = String(
+                ingredient?.prediction_details?.carcinogenicity_group ??
+                ingredient?.status ??
+                ''
+              ).toLowerCase();
+
+              if (group.includes('1') || group.includes('carcinogenic')) return 0; // highest
+              if (group.includes('2a')) return 1;
+              if (group.includes('2b')) return 2;
+              if (group.includes('2')) return 3;
+              if (group.includes('3')) return 4;
+
+              return 5; // unknown / lowest
+            };
+              
+              
               const all = parsedApiResult.ingredients || [];
-              const detected = all.filter((i: any) => !!i.matched_name);
-              const undetected = all.filter((i: any) => !i.matched_name);
+          
+              const detected = all
+              .filter((i: any) => !!i.matched_name)
+              .sort((a: any, b: any) =>
+                getCarcinogenicPriority(a) - getCarcinogenicPriority(b)
+              );
+              //const undetected = all.filter((i: any) => !i.matched_name);
+
+   const undetected = all.filter((i: any) => !i.matched_name);
+
 
               return (
                 <>
@@ -242,27 +307,53 @@ export default function ResultsScreen() {
                     </View>
                   )}
 
-                  {undetected.length > 0 && (
-                    <View style={styles.ingredientsSection}>
-                      <Text style={styles.sectionTitle}>Undetected Ingredients</Text>
-                      {undetected.map((ingredient: any, index: number) => (
-                        <View key={index} style={styles.ingredientCard}>
-                          <View style={styles.ingredientHeader}>
-                            <View style={styles.ingredientNameContainer}>
-                              <View style={{flex:1}}>
-                                <Text style={styles.ingredientName}>{String(ingredient.name).toUpperCase()}</Text>
-                                {ingredient.matched_name ? <Text style={styles.matchedName}>({ingredient.matched_name})</Text> : null}
-                              </View>
-                              <View style={styles.undetectedBadge}>
-                                <Text style={styles.undetectedBadgeText}>SYNONYM NOT FOUND IN DATABASE</Text>
-                              </View>
-                            </View>
-                          </View>
+                      {/* Undetected Ingredients */}
+                      {undetected.length > 0 && (
+                          <View style={styles.ingredientsSection}>
+                    <TouchableOpacity
+                        onPress={toggleUndetectedSection}
+                        activeOpacity={0.7}
+                        style={[styles.ingredientCard, { paddingVertical: 12 }]}
+                    >
+                        <View style={styles.ingredientHeader}>
+                            <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>
+                                Undetected Ingredients
+                            </Text>
+                            <Ionicons
+                                name={undetectedExpanded ? "chevron-up" : "chevron-down"}
+                                size={20}
+                                color="#9CA3AF"
+                            />
                         </View>
-                      ))}
-                    </View>
-                  )}
-                </>
+                    </TouchableOpacity>
+
+                    {undetectedExpanded && (
+                        <View style={{ marginTop: 12 }}>
+                            {undetected.map((ingredient: any, index: number) => (
+                                <View key={index} style={styles.ingredientCard}>
+                                    <View style={styles.ingredientNameContainer}>
+                                        <Text style={styles.ingredientName}>
+                                            {String(ingredient.name).toUpperCase()}
+                                        </Text>
+                                        <View style={styles.undetectedBadge}>
+                                            <Text style={styles.undetectedBadgeText}>
+                                                SYNONYM NOT FOUND IN DATABASE
+                                            </Text>
+                                        </View>
+                                    </View>
+                                    <View style={styles.ingredientDetails}>
+                                        <Text style={styles.detailValue}>
+                                            No synonym match found in the database. Consider checking spelling or using another common name.
+                                        </Text>
+                                    </View>
+                                </View>
+                            ))}
+                        </View>
+                    )}
+                </View>
+            )}
+
+                  </>
               );
             })()}
 
@@ -281,7 +372,7 @@ export default function ResultsScreen() {
                   textAlignVertical="top"
                 />
 
-                <View style={{marginTop: 12, flexDirection: 'row', justifyContent: 'flex-end'}}>
+                <View style={{marginTop: 12, marginBottom:20, flexDirection: 'row', justifyContent: 'flex-end'}}>
                   <TouchableOpacity style={[styles.buttonSmall, styles.primarySmall]} onPress={submitEditedText} disabled={isSubmittingText}>
                     {isSubmittingText ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonSmallText}>Re-analyze text</Text>}
                   </TouchableOpacity>
@@ -311,7 +402,8 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: "row",
-    alignItems: "center",
+      alignItems: "center",
+    marginTop: 20,
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -371,10 +463,20 @@ const styles = StyleSheet.create({
     marginBottom: 8
   },
   adviceLine: {
-    color: '#D1D5DB',
-    fontSize: 14,
-    marginBottom: 8
-  },
+
+        color: '#D1D5DB',
+      fontSize: 14,
+      lineHeight: 22,
+      marginTop: 6,
+      textAlign: 'justify'
+    },
+    hazardText: {
+        fontSize: 14,
+        fontWeight: '600',
+        marginBottom: 6,
+        color: '#F59E0B' // default orange (can be dynamic)
+    },
+
   analysisComplete: {
     color: '#E5E7EB',
     fontSize: 16,

@@ -8,11 +8,33 @@ export default function TextEntryScreen() {
   const [isUploading, setIsUploading] = useState(false);
   const [textValue, setTextValue] = useState("");
 
+
+    const [productType, setProductType] = useState<number | null>(null); //changed this for product type
+
+    //categories of product to choose from
+    const CATEGORY_OPTIONS: { label: string; value: number }[] = [
+        { label: "Aerosol / Spray", value: 1 },
+        { label: "Liquid Solution", value: 2 },
+        { label: "Powder / Granular", value: 3 },
+        { label: "Cream / Gel / Paste", value: 4 },
+        { label: "Solid / Tablet / Block", value: 5 },
+        { label: "Vapor / Strong Fumes", value: 6 },
+        { label: "Mixed / Unknown", value: 7 },
+    ];
+
+
+
   const sendText = async () => {
     if (!textValue || textValue.trim().length === 0) {
       Alert.alert('Validation', 'Please enter some text to analyze.');
       return;
     }
+
+      if (!productType) {
+          Alert.alert("Select Category", "Please choose a category first.");
+          return;
+      }
+
 
     try {
       setIsUploading(true);
@@ -24,7 +46,9 @@ export default function TextEntryScreen() {
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: textValue }),
+          body: JSON.stringify({
+              text: textValue, category: productType
+          }),  // <-- Step 3: add category here 
         signal: controller.signal
       });
       clearTimeout(id);
@@ -93,11 +117,65 @@ export default function TextEntryScreen() {
           />
         </View>
 
+              <View style={styles.footer}>
+              {/** choosing what type of product   **/}
+
+              {/* Product Category Selector */}
+              <View style={{ marginTop: 20 }}>
+                  <Text style={{ color: "#E5E7EB", marginBottom: 10, fontWeight: "600" }}>
+                      Select Product Category
+                  </Text>
+
+                  <View style={{
+                      flexDirection: "row",
+                      flexWrap: "wrap",
+                      gap: 10, 
+                      justifyContent: "space-between"     
+                  }}>
+                      {CATEGORY_OPTIONS.map((item) => {
+                          const selected = productType === item.value;
+
+                          return (
+                              <TouchableOpacity
+                                  key={item.value}
+                                  onPress={() => setProductType(item.value)}
+                                  style={{
+                                      width: "48%",              // 2 per row with equal size
+                                      marginBottom: 10,          // spacing between rows
+                                      paddingVertical: 10,
+                                      paddingHorizontal: 14,
+                                      borderRadius: 10,
+                                      borderWidth: 1,
+                                      borderColor: selected ? "#0EA5E9" : "#374151",
+                                      backgroundColor: selected ? "#0EA5E9" : "#111827",
+                                      alignItems: "center"
+                                  }}
+                              >
+                                  <Text style={{ color: "#fff", fontWeight: "600" }}>
+                                      {item.label}
+                                  </Text>
+                              </TouchableOpacity>
+                          );
+                      })}
+                  </View>
+              </View>
+
+
+
         <View style={styles.footer}>
-          <TouchableOpacity onPress={sendText} style={[styles.button, styles.primary]} disabled={isUploading}>
-            {isUploading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonTextPrimary}>Analyze</Text>}
-          </TouchableOpacity>
-        </View>
+                  <TouchableOpacity
+                      onPress={sendText}
+                      style={[styles.button, styles.primary]}
+                      disabled={isUploading}
+                  >
+                      {isUploading ? (
+                          <ActivityIndicator color="#fff" />
+                      ) : (
+                          <Text style={styles.buttonTextPrimary}>Analyze</Text>
+                      )}
+                  </TouchableOpacity>
+                  </View>
+              </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -107,7 +185,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#000" },
   header: {
     flexDirection: "row",
-    alignItems: "center",
+      alignItems: "center",
+    marginTop: 20,
     paddingHorizontal: 16,
     paddingVertical: 12,
     backgroundColor: "#000"
@@ -206,7 +285,7 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 16
   },
-  footer: { padding: 16, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#111827', backgroundColor: '#000' },
+    footer: { padding: 16, paddingBottom: 0, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#111827', backgroundColor: '#000' },
   button: { height: 48, borderRadius: 12, paddingHorizontal: 20, alignItems: "center", justifyContent: "center", minWidth: 120 },
   primary: { backgroundColor: "#0EA5E9" },
   buttonTextPrimary: { color: "#ffffff", fontWeight: "600" },
