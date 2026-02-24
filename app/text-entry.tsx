@@ -38,7 +38,7 @@ export default function TextEntryScreen() {
 
     try {
       setIsUploading(true);
-      const rawEnv = process.env.EXPO_PUBLIC_API_URL || "https://carciscan-api-production.up.railway.app/";
+      const rawEnv = process.env.EXPO_PUBLIC_API_URL || "https://carciscan.edwardgarcia.site/"; // "https://carciscan-api-production.up.railway.app/"
       const endpoint = normalizePredictTextUrl(rawEnv);
 
       const controller = new AbortController();
@@ -73,8 +73,8 @@ export default function TextEntryScreen() {
   function normalizePredictTextUrl(input: string) {
     try {
       const url = new URL(translateLocalhostForEmulator(input));
-      if (!/\/api\/v1\/predict\/predict-text\/?$/.test(url.pathname)) {
-        url.pathname = url.pathname.replace(/\/?$/, '/api/v1/predict/predict-text');
+      if (!/\/api\/v2\/text\/?$/.test(url.pathname)) {
+        url.pathname = url.pathname.replace(/\/?$/, '/api/v2/text');
       }
       return url.toString();
     } catch {

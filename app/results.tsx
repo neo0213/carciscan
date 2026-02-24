@@ -51,13 +51,13 @@ export default function ResultsScreen() {
     }
   };
 
-  const getGroupBadgeColor = (group: string) => {
-    const g = String(group).toLowerCase();
-    if (g.includes('1')) return '#EF4444';
-    if (g.includes('2b') || g.includes('2b'.toLowerCase()) || g.includes('2')) return '#F59E0B';
-    if (g.includes('3')) return '#10B981';
-    return '#6B7280';
-  };
+  // const getGroupBadgeColor = (group: string) => {
+  //   const g = String(group).toLowerCase();
+  //   if (g.includes('1')) return '#EF4444';
+  //   if (g.includes('2b') || g.includes('2b'.toLowerCase()) || g.includes('2')) return '#F59E0B';
+  //   if (g.includes('3')) return '#10B981';
+  //   return '#6B7280';
+  // };
 
 //to change the label of detected ingredients
   const getGroupLabel = (group: string) => {
@@ -80,7 +80,9 @@ export default function ResultsScreen() {
 
       const prediction = getGroupLabel(String(group));
 
-      const predictionColor = getGroupBadgeColor(String(group));
+      const predictionColor = prediction === 'NOT LIKELY CARCINOGENIC' ? '#10B981'
+        : prediction === 'LIKELY CARCINOGENIC' ? '#EF4444'
+        : '#6B7280';
 
     
     return (
@@ -166,7 +168,7 @@ export default function ResultsScreen() {
 
     try {
       setIsSubmittingText(true);
-      const rawEnv = process.env.EXPO_PUBLIC_API_URL || 'https://carciscan-api-production.up.railway.app/';
+      const rawEnv = process.env.EXPO_PUBLIC_API_URL || 'https://carciscan.edwardgarcia.site/'; // 'https://carciscan-api-production.up.railway.app/'
       const endpoint = normalizePredictTextUrl(rawEnv);
       const controller = new AbortController();
       const id = setTimeout(() => controller.abort(), 60_000);
@@ -209,8 +211,8 @@ export default function ResultsScreen() {
   function normalizePredictTextUrl(input: string) {
     try {
       const url = new URL(translateLocalhostForEmulator(input));
-      if (!/\/api\/v1\/predict\/predict-text\/?$/.test(url.pathname)) {
-        url.pathname = url.pathname.replace(/\/?$/, '/api/v1/predict/predict-text');
+      if (!/\/api\/v2\/text\/?$/.test(url.pathname)) {
+        url.pathname = url.pathname.replace(/\/?$/, '/api/v2/text');
       }
       return url.toString();
     } catch {

@@ -100,7 +100,7 @@ export default function ScanScreen() {
       </View>
 
       <View style={styles.cameraContainer}>
-        <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing={facing} pictureSize="1280x720"/>
+        <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing={facing} />
         <View style={styles.overlayTop}>
           <Text style={styles.brand}>CarciScan</Text>
           <Text style={styles.helper}>Align the label within the frame</Text>
