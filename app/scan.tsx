@@ -30,9 +30,9 @@ export default function ScanScreen() {
 
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
-        allowsEditing: true,
+        allowsEditing: false,
         aspect: [4, 3],
-        quality: 1
+        quality: 1,
       });
 
       if (!result.canceled && result.assets[0]) {

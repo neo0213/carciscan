@@ -1,15 +1,22 @@
 ﻿import Entypo from '@expo/vector-icons/Entypo';
+import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Image, Modal, PanResponder, Platform, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import * as ImageManipulator from "expo-image-manipulator";
 export default function PreviewScreen() {
   const { uri } = useLocalSearchParams<{ uri: string }>();
   const router = useRouter();
   const [isUploading, setIsUploading] = useState(false);
-  const [currentImageUri, setCurrentImageUri] = useState<string | null>(uri || null);
+  const [currentImageUri, setCurrentImageUri] = useState<string | null>(uri ? String(uri) : null);
   const [showCrop, setShowCrop] = useState(false);
+
+  // Sync uri param → state whenever the param changes (handles component reuse across navigations)
+  useEffect(() => {
+    if (uri) {
+      setCurrentImageUri(String(uri));
+    }
+  }, [uri]);
   // const [productType, setProductType] = useState<number | null>(null); //changed this for product type
 
   //categories of product to choose from
@@ -68,10 +75,10 @@ export default function PreviewScreen() {
         console.log("API response:", json);
         if (!res.ok) throw new Error(json?.message || "Upload failed");
         
-        // Navigate to results page
-        router.push({
+        // Replace preview with results so going back returns to scan, not old preview
+        router.replace({
           pathname: "/results",
-          params: { 
+          params: {
             apiResult: JSON.stringify(json),
             resultText: JSON.stringify(json, null, 2)
           }
@@ -79,9 +86,9 @@ export default function PreviewScreen() {
       } else {
         const text = await res.text();
         if (!res.ok) throw new Error(text || "Upload failed");
-        
-        // Navigate to results page with raw text
-        router.push({
+
+        // Replace preview with results so going back returns to scan, not old preview
+        router.replace({
           pathname: "/results",
           params: { resultText: text }
         });
@@ -129,6 +136,7 @@ export default function PreviewScreen() {
                 mediaTypes: ImagePicker.MediaTypeOptions.Images,
                 exif: true,               // 🔑 get EXIF data
                 quality: 0.8,
+                allowsEditing: false
             });
 
             if (!result.canceled && result.assets[0]) {
@@ -235,7 +243,7 @@ export default function PreviewScreen() {
 
 
       <View style={styles.footer}>
-        <TouchableOpacity onPress={() => router.replace("/scan")} style={[styles.button, styles.secondary]}>
+        <TouchableOpacity onPress={() => router.back()} style={[styles.button, styles.secondary]}>
           <Text style={styles.buttonTextSecondary}>Retake</Text>
         </TouchableOpacity>
         {currentImageUri && (
@@ -277,12 +285,32 @@ function CropModal({
   const cropRef = useRef({ x: 0, y: 0, w: 0, h: 0 });
   const [cropDisplay, setCropDisplay] = useState({ x: 0, y: 0, w: 0, h: 0 });
   const initialized = useRef(false);
+  // Normalized URI with EXIF rotation baked in (fixes Android crop-zoom issue)
+  const [readyUri, setReadyUri] = useState<string | null>(null);
 
   useEffect(() => {
-    Image.getSize(uri, (w, h) => {
-      naturalSizeRef.current = { width: w, height: h };
-      setNaturalSize({ width: w, height: h });
-    });
+    // Force EXIF rotation into pixels so the image renders correctly on Android.
+    // We use result.width / result.height directly — Image.getSize can return
+    // stale/cached values on Android, causing the crop coordinates to be wrong.
+    ImageManipulator.manipulateAsync(uri, [{ rotate: 0 }], {
+      compress: 1,
+      format: ImageManipulator.SaveFormat.JPEG,
+    })
+      .then(result => {
+        setReadyUri(result.uri);
+        const dims = { width: result.width, height: result.height };
+        naturalSizeRef.current = dims;
+        setNaturalSize(dims);
+      })
+      .catch(() => {
+        setReadyUri(uri);
+        // Fall back to Image.getSize on the original uri
+        Image.getSize(uri, (w, h) => {
+          const dims = { width: w, height: h };
+          naturalSizeRef.current = dims;
+          setNaturalSize(dims);
+        });
+      });
   }, [uri]);
 
   useEffect(() => {
@@ -292,7 +320,14 @@ function CropModal({
     const dh = naturalSize.height * scale;
     const ox = (containerSize.width - dw) / 2;
     const oy = (containerSize.height - dh) / 2;
-    const box = { x: ox, y: oy, w: dw, h: dh };
+    // Start at 70% of the displayed image so the corner handles are easy to grab
+    const fraction = 0.7;
+    const box = {
+      x: ox + (dw * (1 - fraction)) / 2,
+      y: oy + (dh * (1 - fraction)) / 2,
+      w: dw * fraction,
+      h: dh * fraction,
+    };
     cropRef.current = box;
     setCropDisplay(box);
     initialized.current = true;
@@ -357,7 +392,7 @@ function CropModal({
     const w = Math.min(cropDisplay.w / scale, naturalSize.width - x);
     const h = Math.min(cropDisplay.h / scale, naturalSize.height - y);
     const result = await ImageManipulator.manipulateAsync(
-      uri,
+      readyUri ?? uri,
       [{ crop: { originX: Math.round(x), originY: Math.round(y), width: Math.round(w), height: Math.round(h) } }],
       { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
     );
@@ -365,6 +400,15 @@ function CropModal({
   };
 
   const HANDLE = 24;
+  if (!readyUri) {
+    return (
+      <Modal visible animationType="fade" statusBarTranslucent>
+        <View style={{ flex: 1, backgroundColor: "#000", justifyContent: "center", alignItems: "center" }}>
+          <ActivityIndicator color="#fff" size="large" />
+        </View>
+      </Modal>
+    );
+  }
   return (
     <Modal visible animationType="fade" statusBarTranslucent>
       <View style={{ flex: 1, backgroundColor: "#000" }}>
@@ -376,7 +420,7 @@ function CropModal({
             setContainerSize({ width, height });
           }}
         >
-          <Image source={{ uri }} style={{ flex: 1 }} resizeMode="contain" />
+          <Image source={{ uri: readyUri }} style={{ flex: 1 }} resizeMode="contain" />
           {cropDisplay.w > 0 && (
             <>
               {/* Semi-transparent masks */}

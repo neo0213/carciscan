@@ -249,6 +249,10 @@ export default function ResultsScreen() {
                       {parsedApiResult.practical_advice && (
                           <View style={styles.adviceCard}>
                               <Text style={styles.adviceTitle}>Practical Advice</Text>
+{/* 
+                              <Text style={[styles.detailValue, {marginBottom: 12}]}>
+                                  Category: {parsedApiResult.category}
+                              </Text> */}
 
                               {/* Hazard */}
                               <Text style={styles.hazardText}>
