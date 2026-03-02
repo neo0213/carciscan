@@ -9,19 +9,6 @@ export default function TextEntryScreen() {
   const [textValue, setTextValue] = useState("");
 
 
-    const [productType, setProductType] = useState<number | null>(null); //changed this for product type
-
-    //categories of product to choose from
-    const CATEGORY_OPTIONS: { label: string; value: number }[] = [
-        { label: "Aerosol / Spray", value: 1 },
-        { label: "Liquid Solution", value: 2 },
-        { label: "Powder / Granular", value: 3 },
-        { label: "Cream / Gel / Paste", value: 4 },
-        { label: "Solid / Tablet / Block", value: 5 },
-        { label: "Vapor / Strong Fumes", value: 6 },
-        { label: "Mixed / Unknown", value: 7 },
-    ];
-
 
 
   const sendText = async () => {
@@ -30,25 +17,17 @@ export default function TextEntryScreen() {
       return;
     }
 
-      if (!productType) {
-          Alert.alert("Select Category", "Please choose a category first.");
-          return;
-      }
-
 
     try {
       setIsUploading(true);
-      const rawEnv = process.env.EXPO_PUBLIC_API_URL || "https://carciscan.edwardgarcia.site/"; // "https://carciscan-api-production.up.railway.app/"
-      const endpoint = normalizePredictTextUrl(rawEnv);
+      const endpoint = "https://carciscan.edwardgarcia.site/api/v2/text";
 
       const controller = new AbortController();
       const id = setTimeout(() => controller.abort(), 60_000);
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-              text: textValue, category: productType
-          }),  // <-- Step 3: add category here 
+          body: JSON.stringify({ ingredients: textValue }),
         signal: controller.signal
       });
       clearTimeout(id);
@@ -69,25 +48,6 @@ export default function TextEntryScreen() {
       setIsUploading(false);
     }
   };
-
-  function normalizePredictTextUrl(input: string) {
-    try {
-      const url = new URL(translateLocalhostForEmulator(input));
-      if (!/\/api\/v2\/text\/?$/.test(url.pathname)) {
-        url.pathname = url.pathname.replace(/\/?$/, '/api/v2/text');
-      }
-      return url.toString();
-    } catch {
-      return input;
-    }
-  }
-
-  function translateLocalhostForEmulator(input: string) {
-    if (Platform.OS === 'android') {
-      return input.replace('http://localhost', 'http://10.0.2.2').replace('http://127.0.0.1', 'http://10.0.2.2');
-    }
-    return input;
-  }
 
 
   return (
@@ -117,51 +77,6 @@ export default function TextEntryScreen() {
           />
         </View>
 
-              <View style={styles.footer}>
-              {/** choosing what type of product   **/}
-
-              {/* Product Category Selector */}
-              <View style={{ marginTop: 20 }}>
-                  <Text style={{ color: "#E5E7EB", marginBottom: 10, fontWeight: "600" }}>
-                      Select Product Category
-                  </Text>
-
-                  <View style={{
-                      flexDirection: "row",
-                      flexWrap: "wrap",
-                      gap: 10, 
-                      justifyContent: "space-between"     
-                  }}>
-                      {CATEGORY_OPTIONS.map((item) => {
-                          const selected = productType === item.value;
-
-                          return (
-                              <TouchableOpacity
-                                  key={item.value}
-                                  onPress={() => setProductType(item.value)}
-                                  style={{
-                                      width: "48%",              // 2 per row with equal size
-                                      marginBottom: 10,          // spacing between rows
-                                      paddingVertical: 10,
-                                      paddingHorizontal: 14,
-                                      borderRadius: 10,
-                                      borderWidth: 1,
-                                      borderColor: selected ? "#0EA5E9" : "#374151",
-                                      backgroundColor: selected ? "#0EA5E9" : "#111827",
-                                      alignItems: "center"
-                                  }}
-                              >
-                                  <Text style={{ color: "#fff", fontWeight: "600" }}>
-                                      {item.label}
-                                  </Text>
-                              </TouchableOpacity>
-                          );
-                      })}
-                  </View>
-              </View>
-
-
-
         <View style={styles.footer}>
                   <TouchableOpacity
                       onPress={sendText}
@@ -175,7 +90,6 @@ export default function TextEntryScreen() {
                       )}
                   </TouchableOpacity>
                   </View>
-              </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
