@@ -26,6 +26,16 @@ export default function Index() {
                 <Text style={styles.actionTextSecondary}>Enter Text</Text>
               </TouchableOpacity>
             </Link>
+
+            <Link href="/history" style={[styles.actionButtonLarge, styles.secondaryOutline]} asChild>
+              <TouchableOpacity
+                style={[styles.actionButton, styles.secondaryOutline]}
+                accessibilityLabel="View history"
+              >
+                <Text style={styles.actionTextSecondary}>View History</Text>
+              </TouchableOpacity>
+            </Link> 
+
           </View>
         </View>
       </View>
@@ -40,7 +50,7 @@ const styles = StyleSheet.create({
   subtitle: { color: '#9CA3AF', marginTop: 8, textAlign: 'center' },
   cardContainer: { paddingBottom: 40 },
   card: { backgroundColor: '#0F1724', borderRadius: 16, padding: 20, shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 6 }, elevation: 6 },
-  cardTitle: { color: '#E5E7EB', fontSize: 20, fontWeight: '700', marginBottom: 8 },
+  cardTitle: { color: '#E5E7EB', fontSize: 20, fontWeight: '700', marginBottom: 8, textAlign: 'center'  },
   cardText: { color: '#9CA3AF', marginBottom: 16 },
   actionsRow: { flexDirection: 'column', gap: 5 },
   actionButtonLarge: { width: '100%', height: 56, borderRadius: 14, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20, marginBottom: 12, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 6, shadowOffset: { width: 0, height: 4 }, elevation: 3 },

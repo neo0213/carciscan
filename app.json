@@ -28,7 +28,10 @@
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "usesCleartextTraffic": true,
-      "permissions": ["CAMERA", "CAMERA"],
+      "permissions": [
+        "CAMERA",
+        "CAMERA"
+      ],
       "package": "com.neoolinar.carciscan"
     },
     "web": {
@@ -48,7 +51,8 @@
             "backgroundColor": "#000000"
           }
         }
-      ]
+      ],
+      "expo-sqlite"
     ],
     "experiments": {
       "typedRoutes": true,

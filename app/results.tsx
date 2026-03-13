@@ -1,8 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
 import Entypo from '@expo/vector-icons/Entypo';
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Linking, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { insertHistory } from "../database/historyDatabase";
+
 
 export default function ResultsScreen() {
   const { apiResult, resultText } = useLocalSearchParams<{ 
@@ -15,6 +17,25 @@ export default function ResultsScreen() {
   const parsedApiResult = apiResult ? JSON.parse(apiResult) : null;
   const [ocrTextEditable, setOcrTextEditable] = useState<string>(parsedApiResult?.ocr_result?.text ?? '');
   const [isSubmittingText, setIsSubmittingText] = useState(false);
+  const [historySaved, setHistorySaved] = useState(false);
+
+  //save data in database for history 
+useEffect(() => {
+  const saveToHistory = async () => {
+    // 1. Ensure data exists
+    // 2. Ensure we haven't already saved this specific result
+    if (parsedApiResult?.ingredients && !historySaved) {
+      try {
+        await insertHistory(parsedApiResult.ingredients);
+        setHistorySaved(true); 
+      } catch (error) {
+        console.error("Failed to save to history:", error);
+      }
+    }
+  };
+
+  saveToHistory();
+}, [parsedApiResult, historySaved]); // Trigger whenever result changes
 
   const toggleIngredient = (index: number) => {
     const newExpanded = new Set(expandedIngredients);
@@ -44,10 +65,14 @@ export default function ResultsScreen() {
 
   const getPredictionColor = (prediction: string) => {
     switch (prediction.toLowerCase()) {
-      case 'carcinogenic': return '#EF4444';
-      case 'non-carcinogenic': return '#10B981';
-      case 'unknown': return '#F59E0B';
-      default: return '#6B7280';
+    case 'carcinogenic':
+      return '#EF4444'; // Red
+    case 'likely carcinogenic':
+      return '#F59E0B'; // Orange
+    case 'not likely carcinogenic':
+      return '#10B981'; // Green
+    default:
+      return '#6B7280'; // Gray for unknown
     }
   };
 
@@ -63,9 +88,9 @@ export default function ResultsScreen() {
   const getGroupLabel = (group: string) => {
   const g = group.toLowerCase();
 
-  if (g.includes('1')) return 'LIKELY CARCINOGENIC';
+  if (g.includes('1')) return 'Carcinogenic';
   if (g.includes('2a')) return 'LIKELY CARCINOGENIC';
-  if (g.includes('2b')) return 'NOT LIKELY CARCINOGENIC';
+  if (g.includes('2b')) return 'LIKELY CARCINOGENIC';
   if (g.includes('2')) return 'LIKELY CARCINOGENIC'
   if (g.includes('3')) return 'NOT LIKELY CARCINOGENIC';
 
@@ -81,7 +106,8 @@ export default function ResultsScreen() {
       const prediction = getGroupLabel(String(group));
 
       const predictionColor = prediction === 'NOT LIKELY CARCINOGENIC' ? '#10B981'
-        : prediction === 'LIKELY CARCINOGENIC' ? '#EF4444'
+        : prediction === 'LIKELY CARCINOGENIC' ? '#F59E0B'
+        : prediction === 'Carcinogenic' ? '#EF4444'
         : '#6B7280';
 
     
@@ -291,17 +317,15 @@ export default function ResultsScreen() {
               return 5; // unknown / lowest
             };
               
-              
-              const all = parsedApiResult.ingredients || [];
-          
-              const detected = all
-              .filter((i: any) => !!i.matched_name)
-              .sort((a: any, b: any) =>
-                getCarcinogenicPriority(a) - getCarcinogenicPriority(b)
-              );
-              //const undetected = all.filter((i: any) => !i.matched_name);
+                  const all = parsedApiResult.ingredients || [];
 
-   const undetected = all.filter((i: any) => !i.matched_name);
+                  const detected = all
+                    .filter((i: any) => !!i.matched_name)
+                    .sort((a: any, b: any) =>
+                      getCarcinogenicPriority(a) - getCarcinogenicPriority(b)
+                    );
+
+                  const undetected = all.filter((i: any) => !i.matched_name);
 
 
               return (
@@ -358,7 +382,6 @@ export default function ResultsScreen() {
                     )}
                 </View>
             )}
-
                   </>
               );
             })()}
