@@ -1,9 +1,11 @@
 import { Stack } from "expo-router";
 import { useEffect } from "react";
-import { createTable, resetTable } from "../database/historyDatabase";
+import { createTable } from "../database/historyDatabase";
+import { ThemeProvider } from "../context/ThemeContext";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 
 export default function RootLayout() {
-  
+
   useEffect(() => {
     const initDB = async () => {
       try {
@@ -17,15 +19,19 @@ export default function RootLayout() {
 
     initDB();
   }, []);
-  
+
   return (
-    <Stack>
-      <Stack.Screen name="index" options={{ headerShown: false }} />
-      <Stack.Screen name="scan" options={{ headerShown: false }} />
-      <Stack.Screen name="preview" options={{ headerShown: false }} />
-      <Stack.Screen name="results" options={{ headerShown: false }} />
-      <Stack.Screen name="text-entry" options={{ headerShown: false }} />
-      <Stack.Screen name="history" options={{ headerShown: false }} />
-    </Stack>
+    <SafeAreaProvider>
+    <ThemeProvider>
+      <Stack>
+        <Stack.Screen name="index" options={{ headerShown: false }} />
+        <Stack.Screen name="scan" options={{ headerShown: false }} />
+        <Stack.Screen name="preview" options={{ headerShown: false }} />
+        <Stack.Screen name="results" options={{ headerShown: false }} />
+        <Stack.Screen name="text-entry" options={{ headerShown: false }} />
+        <Stack.Screen name="history" options={{ headerShown: false }} />
+      </Stack>
+    </ThemeProvider>
+    </SafeAreaProvider>
   );
 }

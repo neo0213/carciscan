@@ -1,63 +1,53 @@
 import { Ionicons } from "@expo/vector-icons";
-import Entypo from '@expo/vector-icons/Entypo';
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { Alert, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import {
+  Alert, Platform, SafeAreaView, StatusBar, StyleSheet, Text,
+  TouchableOpacity, View,
+} from "react-native";
+import { useTheme } from "../context/ThemeContext";
 
 export default function ScanScreen() {
   const router = useRouter();
+  const { colors } = useTheme();
   const cameraRef = useRef<CameraView | null>(null);
   const [permission, requestPermission] = useCameraPermissions();
   const [isCapturing, setIsCapturing] = useState(false);
-  const [facing, setFacing] = useState<'back' | 'front'>("back");
+  const [facing, setFacing] = useState<"back" | "front">("back");
 
   useEffect(() => {
-    if (!permission) {
-      // initial load will request the permission object
-      requestPermission();
-    }
+    if (!permission) requestPermission();
   }, [permission, requestPermission]);
 
   const pickImage = async () => {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Please grant photo library access to select an image.');
+      if (status !== "granted") {
+        Alert.alert("Permission needed", "Please grant photo library access.");
         return;
       }
-
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
+        mediaTypes: ["images"],
         allowsEditing: false,
-        aspect: [4, 3],
         quality: 1,
       });
-
       if (!result.canceled && result.assets[0]) {
         router.push({ pathname: "/preview", params: { uri: result.assets[0].uri } });
       }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to pick image');
+    } catch {
+      Alert.alert("Error", "Failed to pick image");
     }
-  };
-
-  const useTextEntry = () => {
-    router.push({ pathname: "/text-entry" });
   };
 
   const takePhoto = async () => {
     if (!cameraRef.current || isCapturing) return;
     try {
       setIsCapturing(true);
-      const photo = await cameraRef.current.takePictureAsync({ 
-        quality: 1
-       });
-       console.log("Photo captured:", photo.uri);
+      const photo = await cameraRef.current.takePictureAsync({ quality: 1 });
       router.push({ pathname: "/preview", params: { uri: photo.uri } });
-
-    } catch (e) {
+    } catch {
       Alert.alert("Capture failed", "Please try again.");
     } finally {
       setIsCapturing(false);
@@ -65,152 +55,110 @@ export default function ScanScreen() {
   };
 
   if (!permission) {
-    return <View style={styles.center}><Text style={styles.muted}>Requesting camera permission…</Text></View>;
-  }
-
-  if (!permission.granted) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.title}>Camera access needed</Text>
-        <Text style={styles.muted}>Enable camera permissions in Settings to scan labels.</Text>
-        <TouchableOpacity onPress={requestPermission} style={[styles.iconButton, { marginTop: 16 }]}> 
-          <Text>Grant permission</Text>
-        </TouchableOpacity>
+      <View style={[s.center, { backgroundColor: colors.bg }]}>
+        <Text style={[s.body, { color: colors.textSecondary }]}>Requesting camera…</Text>
       </View>
     );
   }
 
+  if (!permission.granted) {
+    return (
+      <SafeAreaView style={[s.center, { backgroundColor: colors.bg }]}>
+        <Text style={[s.title, { color: colors.text }]}>Camera access</Text>
+        <Text style={[s.body, { color: colors.textSecondary, textAlign: "center", maxWidth: 280 }]}>
+          We need camera permission to scan product labels.
+        </Text>
+        <TouchableOpacity onPress={requestPermission} style={[s.btn, { backgroundColor: colors.accent }]}>
+          <Text style={s.btnText}>Allow camera</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
+
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Custom Header */}
-      <View style={styles.header}>
-        <TouchableOpacity 
-          onPress={() => router.back()} 
-          style={styles.backButton}
-          accessibilityLabel="Go back"
+    <View style={s.container}>
+      <StatusBar barStyle="light-content" />
+      <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing={facing} />
+
+      {/* Top */}
+      <SafeAreaView style={s.top}>
+        <View style={s.topRow}>
+          <TouchableOpacity onPress={() => router.back()} style={s.pill}>
+            <Ionicons name="chevron-back" size={20} color="#fff" />
+          </TouchableOpacity>
+          <Text style={s.topTitle}>Scan label</Text>
+          <TouchableOpacity onPress={() => router.push("/text-entry")} style={s.pill}>
+            <Ionicons name="create-outline" size={18} color="#fff" />
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+
+      {/* Bottom */}
+      <View style={s.bottom}>
+        <TouchableOpacity onPress={pickImage} style={s.sideBtn}>
+          <Ionicons name="images-outline" size={22} color="#fff" />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={takePhoto}
+          disabled={isCapturing}
+          style={[s.shutter, isCapturing && { opacity: 0.5 }]}
         >
-          <Entypo name="chevron-left" size={24} color="#0B4C8C" />
+          <View style={s.shutterInner} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Scan Label</Text>
-        <View style={styles.headerSpacer} />
 
-        <TouchableOpacity onPress={useTextEntry} style={styles.useTextButton}>
-          <Text style={styles.useTextButtonText}>Use Text Entry</Text>
+        <TouchableOpacity
+          onPress={() => setFacing((p) => (p === "back" ? "front" : "back"))}
+          style={s.sideBtn}
+        >
+          <Ionicons name="camera-reverse-outline" size={22} color="#fff" />
         </TouchableOpacity>
       </View>
-
-      <View style={styles.cameraContainer}>
-        <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing={facing} />
-        <View style={styles.overlayTop}>
-          <Text style={styles.brand}>CarciScan</Text>
-          <Text style={styles.helper}>Align the label within the frame</Text>
-        </View>
-        {/* frame overlay removed per request */}
-        <View style={styles.controls}>
-          <TouchableOpacity onPress={pickImage} style={styles.iconButton} accessibilityLabel="Pick from library">
-            <Ionicons name="images" size={26} color="#0B4C8C" />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={takePhoto} style={[styles.shutter, isCapturing && styles.shutterDisabled]} disabled={isCapturing} accessibilityLabel="Capture photo" />
-          <TouchableOpacity onPress={() => setFacing(prev => prev === 'back' ? 'front' : 'back')} style={styles.iconButton} accessibilityLabel="Flip camera">
-            <Ionicons name="camera-reverse" size={26} color="#0B4C8C" />
-          </TouchableOpacity>
-        </View>
-      </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
-const styles = StyleSheet.create({
+const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#000" },
-  header: {
-    flexDirection: "row",
-      alignItems: "center",
-    marginTop: 20,
+  center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 32 },
+  title: { fontSize: 20, fontWeight: "600" },
+  body: { fontSize: 15, lineHeight: 22 },
+  btn: { paddingHorizontal: 24, paddingVertical: 12, borderRadius: 10, marginTop: 8 },
+  btnText: { color: "#fff", fontWeight: "600", fontSize: 15 },
+  top: {
+    position: "absolute", top: 0, left: 0, right: 0,
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: "#000"
+    paddingTop: Platform.OS === "android" ? 36 : 0,
   },
-  backButton: {
-    padding: 8,
-    marginRight: 8
+  topRow: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingVertical: 8,
   },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#F3F4F6",
-    flex: 1
+  topTitle: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  pill: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    alignItems: "center", justifyContent: "center",
   },
-  headerSpacer: {
-    width: 40
+  bottom: {
+    position: "absolute", bottom: 0, left: 0, right: 0,
+    flexDirection: "row", alignItems: "center", justifyContent: "space-evenly",
+    paddingBottom: 48, paddingTop: 20,
+    backgroundColor: "rgba(0,0,0,0.25)",
   },
-  cameraContainer: {
-    flex: 1,
-    position: "relative"
-  },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
-  title: { fontSize: 22, fontWeight: "600", color: "#0B4C8C", marginBottom: 8, textAlign: "center" },
-  muted: { fontSize: 14, color: "#6B7280", textAlign: "center" },
-  brand: { fontSize: 20, fontWeight: "700", color: "#0B4C8C" },
-  helper: { fontSize: 13, color: "#ffffff", opacity: 0.8 },
-  overlayTop: { position: "absolute", top: 20, left: 20, right: 20, alignItems: "center", gap: 8 },
-  frame: {
-    position: "absolute",
-    top: "20%",
-    left: 24,
-    right: 24,
-    height: "50%",
-    borderRadius: 16,
-    borderWidth: 3,
-    borderColor: "rgba(255,255,255,0.9)",
-    backgroundColor: "transparent"
-  },
-  controls: {
-    position: "absolute",
-    bottom: 40,
-    left: 24,
-    right: 24,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between"
-  },
-  iconButton: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: "#ffffff",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4
+  sideBtn: {
+    width: 48, height: 48, borderRadius: 24,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    alignItems: "center", justifyContent: "center",
   },
   shutter: {
-    width: 78,
-    height: 78,
-    borderRadius: 39,
-    backgroundColor: "#0EA5E9",
-    borderWidth: 6,
-    borderColor: "#ffffff",
-    shadowColor: "#000",
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 6
+    width: 72, height: 72, borderRadius: 36,
+    borderWidth: 3, borderColor: "#fff",
+    alignItems: "center", justifyContent: "center",
   },
-  shutterDisabled: { opacity: 0.6 },
-  useTextButton: {
-    padding: 10,
-    marginRight: 8,
-    borderColor: "#FFFFFF",
-    borderWidth: 1,
-    borderRadius: 12
+  shutterInner: {
+    width: 58, height: 58, borderRadius: 29,
+    backgroundColor: "#fff",
   },
-  useTextButtonText: {
-    color: "#FFFFFF",
-    fontWeight: "600"
-  }
 });
-
-

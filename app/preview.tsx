@@ -1,410 +1,221 @@
-﻿import Entypo from '@expo/vector-icons/Entypo';
+import { Ionicons } from "@expo/vector-icons";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Image, Modal, PanResponder, Platform, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import {
+  ActivityIndicator, Image, Modal, PanResponder,
+  Platform, SafeAreaView, StatusBar, StyleSheet, Text,
+  TouchableOpacity, View, Alert,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ErrorBanner } from "../components/ErrorBanner";
+import { useTheme } from "../context/ThemeContext";
+
 export default function PreviewScreen() {
   const { uri } = useLocalSearchParams<{ uri: string }>();
   const router = useRouter();
-  const [isUploading, setIsUploading] = useState(false);
-  const [currentImageUri, setCurrentImageUri] = useState<string | null>(uri ? String(uri) : null);
+  const { colors, isDark } = useTheme();
+  const insets = useSafeAreaInsets();
+  const [uploading, setUploading] = useState(false);
+  const [imageUri, setImageUri] = useState<string | null>(uri ? String(uri) : null);
   const [showCrop, setShowCrop] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Sync uri param → state whenever the param changes (handles component reuse across navigations)
   useEffect(() => {
-    if (uri) {
-      setCurrentImageUri(String(uri));
-    }
+    if (uri) setImageUri(String(uri));
   }, [uri]);
-  // const [productType, setProductType] = useState<number | null>(null); //changed this for product type
 
-  //categories of product to choose from
-  // const CATEGORY_OPTIONS: { label: string; value: number }[] = [
-  //     { label: "Aerosol / Spray", value: 1 },
-  //     { label: "Liquid Solution", value: 2 },
-  //     { label: "Powder / Granular", value: 3 },
-  //     { label: "Cream / Gel / Paste", value: 4 },
-  //     { label: "Solid / Tablet / Block", value: 5 },
-  //     { label: "Vapor / Strong Fumes", value: 6 },
-  //     { label: "Mixed / Unknown", value: 7 },
-  // ];
-
-
-    const upload = async () => {
-        if (!currentImageUri) return;
-
-        // if (!productType) {
-        //     Alert.alert("Select Category", "Please choose a category first.");
-        //     return;
-        // }
-
-        try {
-            setIsUploading(true);
-            const rawEnv = process.env.EXPO_PUBLIC_API_URL || "https://carciscan.edwardgarcia.site/"; // "https://carciscan-api-production.up.railway.app/"
-            if (!rawEnv) {
-                Alert.alert("Missing API URL", "Set EXPO_PUBLIC_API_URL in your env.");
-                return;
-            }
-            const endpoint = normalizePredictUrl(rawEnv);
-
-            const form = new FormData();
-            // API expects the file field to be named `file`
-            form.append("file", {
-                uri: currentImageUri,
-                name: "scan.jpg",
-                type: "image/jpeg"
-            } as any);
-
-            //added this for category type
-
-            // Step 3: Append category (send to backend)
-            // form.append("category", String(productType));
-
-
-            const res = await fetchWithTimeout(endpoint, {
-                method: "POST",
-                // Let fetch set the Content-Type (with boundary) for multipart form data
-                headers: { Accept: "application/json" },
-                body: form
-            }, 60_000);
-
-      const contentType = res.headers.get("content-type") || "";
-      if (contentType.includes("application/json")) {
+  const upload = async () => {
+    if (!imageUri) return;
+    setError(null);
+    try {
+      setUploading(true);
+      const rawEnv = process.env.EXPO_PUBLIC_API_URL || "https://carciscan.edwardgarcia.site/";
+      const endpoint = normUrl(rawEnv);
+      const form = new FormData();
+      form.append("file", { uri: imageUri, name: "scan.jpg", type: "image/jpeg" } as any);
+      const res = await fetchTimeout(endpoint, { method: "POST", headers: { Accept: "application/json" }, body: form }, 60_000);
+      const ct = res.headers.get("content-type") || "";
+      if (ct.includes("application/json")) {
         const json = await res.json();
-        console.log("API response:", json);
         if (!res.ok) throw new Error(json?.message || "Upload failed");
-        
-        // Replace preview with results so going back returns to scan, not old preview
-        router.replace({
-          pathname: "/results",
-          params: {
-            apiResult: JSON.stringify(json),
-            resultText: JSON.stringify(json, null, 2)
-          }
-        });
+        router.replace({ pathname: "/results", params: { apiResult: JSON.stringify(json), resultText: JSON.stringify(json, null, 2) } });
       } else {
         const text = await res.text();
         if (!res.ok) throw new Error(text || "Upload failed");
-
-        // Replace preview with results so going back returns to scan, not old preview
-        router.replace({
-          pathname: "/results",
-          params: { resultText: text }
-        });
+        router.replace({ pathname: "/results", params: { resultText: text } });
       }
     } catch (e: any) {
-      Alert.alert("Upload error", e?.message ?? "Please try again.");
+      setError(e?.message ?? "Something went wrong. Please try again.");
     } finally {
-      setIsUploading(false);
+      setUploading(false);
     }
   };
 
-     /*
   const pickImage = async () => {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Please grant photo library access to select an image.');
-        return;
-      }
-
+      if (status !== "granted") { setError("Photo library permission is required to pick an image."); return; }
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 0.8,
+        mediaTypes: ImagePicker.MediaTypeOptions.Images, exif: true, quality: 0.8, allowsEditing: false,
       });
-
       if (!result.canceled && result.assets[0]) {
-        setCurrentImageUri(result.assets[0].uri);
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to pick image');
-    }
-  };*/
-
-    const pickImage = async () => {
-        try {
-            const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-            if (status !== "granted") {
-                Alert.alert("Permission needed");
-                return;
-            }
-
-            const result = await ImagePicker.launchImageLibraryAsync({
-                mediaTypes: ImagePicker.MediaTypeOptions.Images,
-                exif: true,               // 🔑 get EXIF data
-                quality: 0.8,
-                allowsEditing: false
-            });
-
-            if (!result.canceled && result.assets[0]) {
-                const asset = result.assets[0];
-
-                let imageUri = asset.uri;
-
-                // Normalize orientation if EXIF exists
-                if (asset.exif?.Orientation) {
-                    const manipulated = await ImageManipulator.manipulateAsync(
-                        imageUri,
-                        [{ rotate: 0 }], // forces orientation fix
-                        { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
-                    );
-                    imageUri = manipulated.uri;
-                }
-
-                setCurrentImageUri(imageUri);
-            }
-        } catch (error) {
-            Alert.alert("Error", "Failed to pick image");
+        let u = result.assets[0].uri;
+        if (result.assets[0].exif?.Orientation) {
+          const m = await ImageManipulator.manipulateAsync(u, [{ rotate: 0 }], { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG });
+          u = m.uri;
         }
-    };
-
-    // aspectRatio via Image.getSize was causing left-alignment on iOS (raw file dims
-    // are landscape even for portrait shots due to EXIF rotation). resizeMode="contain"
-    // handles scaling correctly on its own.
-    // const [imageAspectRatio, setImageAspectRatio] = useState<number>(1);
-    // useEffect(() => {
-    //     if (!currentImageUri) return;
-    //     Image.getSize(
-    //         currentImageUri,
-    //         (width, height) => { setImageAspectRatio(width / height); },
-    //         () => { setImageAspectRatio(1); }
-    //     );
-    // }, [currentImageUri]);
-
+        setImageUri(u);
+      }
+    } catch { setError("Failed to pick image. Try again."); }
+  };
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Custom Header */}
-      <View style={styles.header}>
-        <TouchableOpacity 
-          onPress={() => router.back()} 
-          style={styles.backButton}
-          accessibilityLabel="Go back"
-        >
-          <Entypo name="chevron-left" size={24} color="#0B4C8C" />
+    <View style={[s.root, { backgroundColor: colors.bg, paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} translucent backgroundColor="transparent" />
+
+      {/* Header */}
+      <View style={[s.header, { borderBottomColor: colors.border }]}>
+        <TouchableOpacity onPress={() => router.back()} hitSlop={12}>
+          <Ionicons name="chevron-back" size={24} color={colors.textSecondary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Preview</Text>
-        <View style={styles.headerSpacer} />
+        <Text style={[s.headerTitle, { color: colors.text }]}>Preview</Text>
+        <View style={{ width: 24 }} />
       </View>
 
-          <View style={styles.content}>
-              {currentImageUri ? (
-                  <Image
-                      source={{ uri: currentImageUri }}
-                      style={styles.preview}
-                      resizeMode="contain"
-                  />
-              ) : (
-                  <View style={styles.missing}>
-                      <Text style={styles.muted}>No image</Text>
-                  </View>
-              )}
+      {/* Image */}
+      <View style={s.imageArea}>
+        {imageUri ? (
+          <View style={[s.frame, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Image source={{ uri: imageUri }} style={s.img} resizeMode="contain" />
           </View>
-
-          {/* Product Category Selector — commented out
-          <View style={{ marginTop: 20, marginLeft: 10, marginRight: 10}}>
-              <Text style={{ color: "#E5E7EB", marginBottom: 20, fontWeight: "600", marginLeft: 10 }}>
-                  Select Product Category
-              </Text>
-
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-                  {CATEGORY_OPTIONS.map((item) => {
-                      const selected = productType === item.value;
-
-                      return (
-                          <TouchableOpacity
-                              key={item.value}
-                              onPress={() => setProductType(item.value)}
-                              style={{
-                                  width: "48%",
-                                  marginBottom: 10,
-                                  paddingVertical: 10,
-                                  paddingHorizontal: 14,
-                                  borderRadius: 10,
-                                  borderWidth: 1,
-                                  borderColor: selected ? "#0EA5E9" : "#374151",
-                                  backgroundColor: selected ? "#0EA5E9" : "#111827",
-                                  alignItems: "center"
-                              }}
-                          >
-                              <Text style={{ color: "#fff", fontWeight: "600" }}>
-                                  {item.label}
-                              </Text>
-                          </TouchableOpacity>
-                      );
-                  })}
-              </View>
+        ) : (
+          <View style={[s.empty, { borderColor: colors.border }]}>
+            <Ionicons name="image-outline" size={40} color={colors.textTertiary} />
+            <Text style={[s.emptyText, { color: colors.textTertiary }]}>No image</Text>
           </View>
-          */}
-
-
-
-      <View style={styles.footer}>
-        <TouchableOpacity onPress={() => router.back()} style={[styles.button, styles.secondary]}>
-          <Text style={styles.buttonTextSecondary}>Retake</Text>
-        </TouchableOpacity>
-        {currentImageUri && (
-          <TouchableOpacity onPress={() => setShowCrop(true)} style={[styles.button, styles.secondary]}>
-            <Text style={styles.buttonTextSecondary}>Crop</Text>
-          </TouchableOpacity>
         )}
-        <TouchableOpacity onPress={upload} style={[styles.button, styles.primary]} disabled={isUploading}>
-          {isUploading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonTextPrimary}>Analyze</Text>}
-        </TouchableOpacity>
       </View>
 
-      {showCrop && currentImageUri && (
+      {/* Actions */}
+      <View style={[s.actionsWrapper, { borderTopColor: colors.border }]}>
+        {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
+        <View style={s.actions}>
+          <TouchableOpacity onPress={() => router.back()} style={[s.actionBtn, { borderColor: colors.border }]}>
+            <Text style={[s.actionText, { color: colors.text }]}>Retake</Text>
+          </TouchableOpacity>
+          {imageUri && (
+            <TouchableOpacity onPress={() => setShowCrop(true)} style={[s.actionBtn, { borderColor: colors.border }]}>
+              <Text style={[s.actionText, { color: colors.text }]}>Crop</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            onPress={upload}
+            disabled={uploading}
+            style={[s.primaryBtn, { backgroundColor: colors.accent }, uploading && { opacity: 0.6 }]}
+          >
+            {uploading ? <ActivityIndicator color="#fff" /> : <Text style={s.primaryText}>Analyze</Text>}
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {showCrop && imageUri && (
         <CropModal
-          uri={currentImageUri}
-          onApply={(croppedUri) => { setCurrentImageUri(croppedUri); setShowCrop(false); }}
+          uri={imageUri}
+          onApply={(u) => { setImageUri(u); setShowCrop(false); }}
           onCancel={() => setShowCrop(false)}
         />
       )}
-    </SafeAreaView>
+    </View>
   );
 }
 
-// ─── Crop Modal ───────────────────────────────────────────────────────────────
-function CropModal({
-  uri,
-  onApply,
-  onCancel,
-}: {
-  uri: string;
-  onApply: (croppedUri: string) => void;
-  onCancel: () => void;
-}) {
+/* ── Crop Modal ─────────────────────────────────────────── */
+function CropModal({ uri, onApply, onCancel }: { uri: string; onApply: (u: string) => void; onCancel: () => void }) {
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   const [naturalSize, setNaturalSize] = useState({ width: 0, height: 0 });
-  // Refs so PanResponder closures (created once) can read latest values
-  const containerSizeRef = useRef({ width: 0, height: 0 });
-  const naturalSizeRef = useRef({ width: 0, height: 0 });
+  const containerRef = useRef({ width: 0, height: 0 });
+  const naturalRef = useRef({ width: 0, height: 0 });
   const cropRef = useRef({ x: 0, y: 0, w: 0, h: 0 });
-  const [cropDisplay, setCropDisplay] = useState({ x: 0, y: 0, w: 0, h: 0 });
-  const initialized = useRef(false);
-  // Normalized URI with EXIF rotation baked in (fixes Android crop-zoom issue)
-  const [readyUri, setReadyUri] = useState<string | null>(null);
+  const [crop, setCrop] = useState({ x: 0, y: 0, w: 0, h: 0 });
+  const init = useRef(false);
+  const [ready, setReady] = useState<string | null>(null);
 
   useEffect(() => {
-    // Force EXIF rotation into pixels so the image renders correctly on Android.
-    // We use result.width / result.height directly — Image.getSize can return
-    // stale/cached values on Android, causing the crop coordinates to be wrong.
-    ImageManipulator.manipulateAsync(uri, [{ rotate: 0 }], {
-      compress: 1,
-      format: ImageManipulator.SaveFormat.JPEG,
-    })
-      .then(result => {
-        setReadyUri(result.uri);
-        const dims = { width: result.width, height: result.height };
-        naturalSizeRef.current = dims;
-        setNaturalSize(dims);
-      })
-      .catch(() => {
-        setReadyUri(uri);
-        // Fall back to Image.getSize on the original uri
-        Image.getSize(uri, (w, h) => {
-          const dims = { width: w, height: h };
-          naturalSizeRef.current = dims;
-          setNaturalSize(dims);
-        });
-      });
+    ImageManipulator.manipulateAsync(uri, [{ rotate: 0 }], { compress: 1, format: ImageManipulator.SaveFormat.JPEG })
+      .then((r) => { setReady(r.uri); naturalRef.current = { width: r.width, height: r.height }; setNaturalSize({ width: r.width, height: r.height }); })
+      .catch(() => { setReady(uri); Image.getSize(uri, (w, h) => { naturalRef.current = { width: w, height: h }; setNaturalSize({ width: w, height: h }); }); });
   }, [uri]);
 
   useEffect(() => {
-    if (!containerSize.width || !naturalSize.width || initialized.current) return;
-    const scale = Math.min(containerSize.width / naturalSize.width, containerSize.height / naturalSize.height);
-    const dw = naturalSize.width * scale;
-    const dh = naturalSize.height * scale;
-    const ox = (containerSize.width - dw) / 2;
-    const oy = (containerSize.height - dh) / 2;
-    // Start at 70% of the displayed image so the corner handles are easy to grab
-    const fraction = 0.7;
-    const box = {
-      x: ox + (dw * (1 - fraction)) / 2,
-      y: oy + (dh * (1 - fraction)) / 2,
-      w: dw * fraction,
-      h: dh * fraction,
-    };
-    cropRef.current = box;
-    setCropDisplay(box);
-    initialized.current = true;
+    if (!containerSize.width || !naturalSize.width || init.current) return;
+    const sc = Math.min(containerSize.width / naturalSize.width, containerSize.height / naturalSize.height);
+    const dw = naturalSize.width * sc, dh = naturalSize.height * sc;
+    const ox = (containerSize.width - dw) / 2, oy = (containerSize.height - dh) / 2;
+    const f = 0.7;
+    const b = { x: ox + (dw * (1 - f)) / 2, y: oy + (dh * (1 - f)) / 2, w: dw * f, h: dh * f };
+    cropRef.current = b; setCrop(b); init.current = true;
   }, [containerSize, naturalSize]);
 
-  const makeCornerPan = (corner: "tl" | "tr" | "bl" | "br") => {
-    const start = { x: 0, y: 0, w: 0, h: 0 };
+  const mkCorner = (corner: "tl" | "tr" | "bl" | "br") => {
+    const st = { x: 0, y: 0, w: 0, h: 0 };
     return PanResponder.create({
       onStartShouldSetPanResponder: () => true,
-      onPanResponderGrant: () => Object.assign(start, cropRef.current),
+      onPanResponderGrant: () => Object.assign(st, cropRef.current),
       onPanResponderMove: (_, { dx, dy }) => {
-        const MIN = 60;
-        const b = { ...start };
-        if (corner === "tl") {
-          if (b.w - dx >= MIN && b.h - dy >= MIN) { b.x += dx; b.y += dy; b.w -= dx; b.h -= dy; }
-        } else if (corner === "tr") {
-          if (b.w + dx >= MIN && b.h - dy >= MIN) { b.y += dy; b.w += dx; b.h -= dy; }
-        } else if (corner === "bl") {
-          if (b.w - dx >= MIN && b.h + dy >= MIN) { b.x += dx; b.w -= dx; b.h += dy; }
-        } else {
-          if (b.w + dx >= MIN && b.h + dy >= MIN) { b.w += dx; b.h += dy; }
-        }
-        cropRef.current = b;
-        setCropDisplay({ ...b });
+        const MIN = 60; const b = { ...st };
+        if (corner === "tl") { if (b.w - dx >= MIN && b.h - dy >= MIN) { b.x += dx; b.y += dy; b.w -= dx; b.h -= dy; } }
+        else if (corner === "tr") { if (b.w + dx >= MIN && b.h - dy >= MIN) { b.y += dy; b.w += dx; b.h -= dy; } }
+        else if (corner === "bl") { if (b.w - dx >= MIN && b.h + dy >= MIN) { b.x += dx; b.w -= dx; b.h += dy; } }
+        else { if (b.w + dx >= MIN && b.h + dy >= MIN) { b.w += dx; b.h += dy; } }
+        cropRef.current = b; setCrop({ ...b });
       },
     });
   };
 
-  const tlPan = useRef(makeCornerPan("tl")).current;
-  const trPan = useRef(makeCornerPan("tr")).current;
-  const blPan = useRef(makeCornerPan("bl")).current;
-  const brPan = useRef(makeCornerPan("br")).current;
+  const tl = useRef(mkCorner("tl")).current;
+  const tr = useRef(mkCorner("tr")).current;
+  const bl = useRef(mkCorner("bl")).current;
+  const br = useRef(mkCorner("br")).current;
 
-  const moveStart = useRef({ x: 0, y: 0, w: 0, h: 0 });
-  const movePan = useRef(PanResponder.create({
+  const ms = useRef({ x: 0, y: 0, w: 0, h: 0 });
+  const mp = useRef(PanResponder.create({
     onStartShouldSetPanResponder: () => true,
-    onPanResponderGrant: () => Object.assign(moveStart.current, cropRef.current),
+    onPanResponderGrant: () => Object.assign(ms.current, cropRef.current),
     onPanResponderMove: (_, { dx, dy }) => {
-      const cs = containerSizeRef.current;
-      const ns = naturalSizeRef.current;
+      const cs = containerRef.current, ns = naturalRef.current;
       if (!cs.width || !ns.width) return;
-      const scale = Math.min(cs.width / ns.width, cs.height / ns.height);
-      const ox = (cs.width - ns.width * scale) / 2;
-      const oy = (cs.height - ns.height * scale) / 2;
-      const s = moveStart.current;
-      const newX = Math.max(ox, Math.min(s.x + dx, ox + ns.width * scale - s.w));
-      const newY = Math.max(oy, Math.min(s.y + dy, oy + ns.height * scale - s.h));
-      const b = { ...s, x: newX, y: newY };
-      cropRef.current = b;
-      setCropDisplay({ ...b });
+      const sc = Math.min(cs.width / ns.width, cs.height / ns.height);
+      const ox = (cs.width - ns.width * sc) / 2, oy = (cs.height - ns.height * sc) / 2;
+      const prev = ms.current;
+      const nx = Math.max(ox, Math.min(prev.x + dx, ox + ns.width * sc - prev.w));
+      const ny = Math.max(oy, Math.min(prev.y + dy, oy + ns.height * sc - prev.h));
+      const b = { ...prev, x: nx, y: ny };
+      cropRef.current = b; setCrop({ ...b });
     },
   })).current;
 
-  const handleApply = async () => {
-    const scale = Math.min(containerSize.width / naturalSize.width, containerSize.height / naturalSize.height);
-    const dw = naturalSize.width * scale;
-    const dh = naturalSize.height * scale;
-    const ox = (containerSize.width - dw) / 2;
-    const oy = (containerSize.height - dh) / 2;
-    const x = Math.max(0, (cropDisplay.x - ox) / scale);
-    const y = Math.max(0, (cropDisplay.y - oy) / scale);
-    const w = Math.min(cropDisplay.w / scale, naturalSize.width - x);
-    const h = Math.min(cropDisplay.h / scale, naturalSize.height - y);
-    const result = await ImageManipulator.manipulateAsync(
-      readyUri ?? uri,
+  const apply = async () => {
+    const sc = Math.min(containerSize.width / naturalSize.width, containerSize.height / naturalSize.height);
+    const dw = naturalSize.width * sc, dh = naturalSize.height * sc;
+    const ox = (containerSize.width - dw) / 2, oy = (containerSize.height - dh) / 2;
+    const x = Math.max(0, (crop.x - ox) / sc), y = Math.max(0, (crop.y - oy) / sc);
+    const w = Math.min(crop.w / sc, naturalSize.width - x), h = Math.min(crop.h / sc, naturalSize.height - y);
+    const r = await ImageManipulator.manipulateAsync(
+      ready ?? uri,
       [{ crop: { originX: Math.round(x), originY: Math.round(y), width: Math.round(w), height: Math.round(h) } }],
-      { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
+      { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG },
     );
-    onApply(result.uri);
+    onApply(r.uri);
   };
 
-  const HANDLE = 24;
-  if (!readyUri) {
+  const H = 22;
+  if (!ready) {
     return (
       <Modal visible animationType="fade" statusBarTranslucent>
         <View style={{ flex: 1, backgroundColor: "#000", justifyContent: "center", alignItems: "center" }}>
-          <ActivityIndicator color="#fff" size="large" />
+          <ActivityIndicator color="#6E56CF" size="large" />
         </View>
       </Modal>
     );
@@ -414,50 +225,34 @@ function CropModal({
       <View style={{ flex: 1, backgroundColor: "#000" }}>
         <View
           style={{ flex: 1 }}
-          onLayout={(e) => {
-            const { width, height } = e.nativeEvent.layout;
-            containerSizeRef.current = { width, height };
-            setContainerSize({ width, height });
-          }}
+          onLayout={(e) => { const { width, height } = e.nativeEvent.layout; containerRef.current = { width, height }; setContainerSize({ width, height }); }}
         >
-          <Image source={{ uri: readyUri }} style={{ flex: 1 }} resizeMode="contain" />
-          {cropDisplay.w > 0 && (
+          <Image source={{ uri: ready }} style={{ flex: 1 }} resizeMode="contain" />
+          {crop.w > 0 && (
             <>
-              {/* Semi-transparent masks */}
-              <View style={{ position: "absolute", left: 0, right: 0, top: 0, height: cropDisplay.y, backgroundColor: "rgba(0,0,0,0.55)" }} />
-              <View style={{ position: "absolute", left: 0, right: 0, top: cropDisplay.y + cropDisplay.h, bottom: 0, backgroundColor: "rgba(0,0,0,0.55)" }} />
-              <View style={{ position: "absolute", top: cropDisplay.y, left: 0, width: cropDisplay.x, height: cropDisplay.h, backgroundColor: "rgba(0,0,0,0.55)" }} />
-              <View style={{ position: "absolute", top: cropDisplay.y, left: cropDisplay.x + cropDisplay.w, right: 0, height: cropDisplay.h, backgroundColor: "rgba(0,0,0,0.55)" }} />
-              {/* Crop border */}
-              <View style={{ position: "absolute", left: cropDisplay.x, top: cropDisplay.y, width: cropDisplay.w, height: cropDisplay.h, borderWidth: 1.5, borderColor: "#fff" }} />
-              {/* Draggable move area (behind corners) */}
-              <View
-                {...movePan.panHandlers}
-                style={{ position: "absolute", left: cropDisplay.x, top: cropDisplay.y, width: cropDisplay.w, height: cropDisplay.h }}
-              />
-              {/* Corner handles */}
+              <View style={{ position: "absolute", left: 0, right: 0, top: 0, height: crop.y, backgroundColor: "rgba(0,0,0,0.55)" }} />
+              <View style={{ position: "absolute", left: 0, right: 0, top: crop.y + crop.h, bottom: 0, backgroundColor: "rgba(0,0,0,0.55)" }} />
+              <View style={{ position: "absolute", top: crop.y, left: 0, width: crop.x, height: crop.h, backgroundColor: "rgba(0,0,0,0.55)" }} />
+              <View style={{ position: "absolute", top: crop.y, left: crop.x + crop.w, right: 0, height: crop.h, backgroundColor: "rgba(0,0,0,0.55)" }} />
+              <View style={{ position: "absolute", left: crop.x, top: crop.y, width: crop.w, height: crop.h, borderWidth: 1.5, borderColor: "#fff" }} />
+              <View {...mp.panHandlers} style={{ position: "absolute", left: crop.x, top: crop.y, width: crop.w, height: crop.h }} />
               {([
-                { pan: tlPan, left: cropDisplay.x - HANDLE / 2, top: cropDisplay.y - HANDLE / 2 },
-                { pan: trPan, left: cropDisplay.x + cropDisplay.w - HANDLE / 2, top: cropDisplay.y - HANDLE / 2 },
-                { pan: blPan, left: cropDisplay.x - HANDLE / 2, top: cropDisplay.y + cropDisplay.h - HANDLE / 2 },
-                { pan: brPan, left: cropDisplay.x + cropDisplay.w - HANDLE / 2, top: cropDisplay.y + cropDisplay.h - HANDLE / 2 },
-              ] as any[]).map((h, i) => (
-                <View
-                  key={i}
-                  {...h.pan.panHandlers}
-                  style={{ position: "absolute", width: HANDLE, height: HANDLE, borderRadius: 4, backgroundColor: "#0EA5E9", left: h.left, top: h.top }}
-                />
+                { p: tl, l: crop.x - H / 2, t: crop.y - H / 2 },
+                { p: tr, l: crop.x + crop.w - H / 2, t: crop.y - H / 2 },
+                { p: bl, l: crop.x - H / 2, t: crop.y + crop.h - H / 2 },
+                { p: br, l: crop.x + crop.w - H / 2, t: crop.y + crop.h - H / 2 },
+              ] as any[]).map((c, i) => (
+                <View key={i} {...c.p.panHandlers} style={{ position: "absolute", width: H, height: H, borderRadius: 4, backgroundColor: "#fff", left: c.l, top: c.t }} />
               ))}
             </>
           )}
         </View>
-        {/* Toolbar */}
-        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 16, paddingBottom: 32, backgroundColor: "#111827" }}>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", padding: 20, paddingBottom: 44, backgroundColor: "#111" }}>
           <TouchableOpacity onPress={onCancel} style={{ padding: 12 }}>
-            <Text style={{ color: "#9CA3AF", fontWeight: "600", fontSize: 16 }}>Cancel</Text>
+            <Text style={{ color: "#888", fontWeight: "600", fontSize: 16 }}>Cancel</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={handleApply} style={{ paddingHorizontal: 20, paddingVertical: 12, backgroundColor: "#0EA5E9", borderRadius: 10 }}>
-            <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Apply Crop</Text>
+          <TouchableOpacity onPress={apply} style={{ paddingHorizontal: 24, paddingVertical: 12, backgroundColor: "#6E56CF", borderRadius: 10 }}>
+            <Text style={{ color: "#fff", fontWeight: "600", fontSize: 16 }}>Apply</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -465,95 +260,48 @@ function CropModal({
   );
 }
 
-// Uses React Native FormData + fetch per latest Expo FS guidance
-
-function normalizePredictUrl(input: string) {
+function normUrl(input: string) {
   try {
-    const url = new URL(translateLocalhostForEmulator(input));
-    // Ensure we point to the image prediction endpoint
-    if (!/\/api\/v2\/image\/?$/.test(url.pathname)) {
-      url.pathname = url.pathname.replace(/\/?$/, "/api/v2/image");
-    }
+    const url = new URL(Platform.OS === "android" ? input.replace("http://localhost", "http://10.0.2.2").replace("http://127.0.0.1", "http://10.0.2.2") : input);
+    if (!/\/api\/v2\/image\/?$/.test(url.pathname)) url.pathname = url.pathname.replace(/\/?$/, "/api/v2/image");
     return url.toString();
-  } catch {
-    return input;
-  }
+  } catch { return input; }
 }
 
-function translateLocalhostForEmulator(input: string) {
-  // Android emulator cannot reach host localhost; use 10.0.2.2
-  if (Platform.OS === "android") {
-    return input.replace("http://localhost", "http://10.0.2.2").replace("http://127.0.0.1", "http://10.0.2.2");
-  }
-  return input;
+async function fetchTimeout(resource: RequestInfo | URL, opts: RequestInit = {}, ms = 60_000) {
+  const c = new AbortController();
+  const id = setTimeout(() => c.abort(), ms);
+  try { return await fetch(resource, { ...opts, signal: c.signal }); } finally { clearTimeout(id); }
 }
 
-async function fetchWithTimeout(resource: RequestInfo | URL, options: RequestInit = {}, timeoutMs = 60_000) {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(resource, { ...options, signal: controller.signal });
-    return response;
-  } finally {
-    clearTimeout(id);
-  }
-}
-
-
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#0B1220" },
+const s = StyleSheet.create({
+  root: { flex: 1 },
   header: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-      paddingVertical: 12,
-    marginTop: 20,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#1F2937",
-    backgroundColor: "#0B1220"
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1,
   },
-  backButton: {
-    padding: 8,
-    marginRight: 8
+  headerTitle: { fontSize: 16, fontWeight: "600" },
+  imageArea: { flex: 1, padding: 16 },
+  frame: { flex: 1, borderRadius: 12, overflow: "hidden", borderWidth: 1 },
+  img: { width: "100%", flex: 1 },
+  empty: {
+    flex: 1, borderRadius: 12, borderWidth: 1, borderStyle: "dashed",
+    alignItems: "center", justifyContent: "center", gap: 8,
   },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#F3F4F6",
-    flex: 1
+  emptyText: { fontSize: 14 },
+  actionsWrapper: {
+    padding: 16, borderTopWidth: StyleSheet.hairlineWidth,
   },
-  headerSpacer: {
-    width: 40
+  actions: {
+    flexDirection: "row", gap: 8,
   },
-    content: {
-        flex: 1,
-        padding: 16,
-        justifyContent: "center",
-        alignItems: "center",
-    },
-
-    preview: {
-        width: "100%",
-        flex: 1,
-        borderRadius: 16,
-        backgroundColor: "#000",
-    },
-
-
-  missing: { flex: 1, alignItems: "center", justifyContent: "center" },
-  muted: { color: "#9CA3AF" },
-  footer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    padding: 16,
-    backgroundColor: "#0B1220",
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#1F2937"
+  actionBtn: {
+    flex: 1, height: 48, borderRadius: 10, borderWidth: 1,
+    alignItems: "center", justifyContent: "center",
   },
-  button: { height: 48, borderRadius: 12, paddingHorizontal: 20, alignItems: "center", justifyContent: "center", minWidth: 120 },
-  primary: { backgroundColor: "#0EA5E9" },
-  secondary: { backgroundColor: "#111827", borderWidth: 1, borderColor: "#374151" },
-  buttonTextPrimary: { color: "#ffffff", fontWeight: "600" },
-  buttonTextSecondary: { color: "#E5E7EB", fontWeight: "600" }
+  actionText: { fontWeight: "600", fontSize: 15 },
+  primaryBtn: {
+    flex: 1.5, height: 48, borderRadius: 10, alignItems: "center", justifyContent: "center",
+  },
+  primaryText: { color: "#fff", fontWeight: "600", fontSize: 15 },
 });

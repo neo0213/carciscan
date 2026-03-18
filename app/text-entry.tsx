@@ -1,119 +1,129 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ErrorBanner } from "../components/ErrorBanner";
+import { useTheme } from "../context/ThemeContext";
 
 export default function TextEntryScreen() {
   const router = useRouter();
-  const [isUploading, setIsUploading] = useState(false);
-  const [textValue, setTextValue] = useState("");
+  const { colors, isDark } = useTheme();
   const insets = useSafeAreaInsets();
+  const [text, setText] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const sendText = async () => {
-    if (!textValue || textValue.trim().length === 0) {
-      Alert.alert('Validation', 'Please enter some text to analyze.');
+  const submit = async () => {
+    if (!text.trim()) {
+      setError("Please enter at least one ingredient.");
       return;
     }
-
+    setError(null);
     try {
-      setIsUploading(true);
+      setLoading(true);
       const endpoint = "https://carciscan.edwardgarcia.site/api/v2/text";
-
       const controller = new AbortController();
       const id = setTimeout(() => controller.abort(), 60_000);
-      
       const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 
-          'Accept': 'application/json', 
-          'Content-Type': 'application/json' 
-        },
-        body: JSON.stringify({ ingredients: textValue }),
-        signal: controller.signal
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify({ ingredients: text }),
+        signal: controller.signal,
       });
       clearTimeout(id);
-
-      const contentType = res.headers.get('content-type') || '';
-      if (contentType.includes('application/json')) {
+      const ct = res.headers.get("content-type") || "";
+      if (ct.includes("application/json")) {
         const json = await res.json();
-        if (!res.ok) throw new Error(json?.message || 'Request failed');
-        
-        router.push({ 
-          pathname: '/results', 
-          params: { 
-            apiResult: JSON.stringify(json), 
-            resultText: JSON.stringify(json, null, 2) 
-          } 
+        if (!res.ok) throw new Error(json?.message || `Server error (${res.status})`);
+        router.push({
+          pathname: "/results",
+          params: { apiResult: JSON.stringify(json), resultText: JSON.stringify(json, null, 2) },
         });
       } else {
-        const text = await res.text();
-        if (!res.ok) throw new Error(text || 'Request failed');
-        router.push({ 
-          pathname: '/results', 
-          params: { resultText: text } 
-        });
+        const raw = await res.text();
+        if (!res.ok) throw new Error(raw || `Server error (${res.status})`);
+        router.push({ pathname: "/results", params: { resultText: raw } });
       }
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'Please try again.');
+      setError(e?.message ?? "Something went wrong.");
     } finally {
-      setIsUploading(false);
+      setLoading(false);
     }
   };
 
   return (
-    <View style={styles.container}>
-      {/* Header Area */}
-      <View style={[styles.header, { paddingTop: insets.top }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Text style={styles.backIcon}>←</Text>
+    <View style={[s.root, { backgroundColor: colors.bg }]}>
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} translucent backgroundColor="transparent" />
+
+      {/* Header */}
+      <View style={[s.header, { paddingTop: insets.top + 8, borderBottomColor: colors.border }]}>
+        <TouchableOpacity onPress={() => router.back()} hitSlop={12}>
+          <Ionicons name="chevron-back" size={24} color={colors.textSecondary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Analyze Ingredients</Text>
-        <View style={styles.headerSpacer} />
+        <Text style={[s.headerTitle, { color: colors.text }]}>Enter ingredients</Text>
+        <View style={{ width: 24 }} />
       </View>
 
-      {/* KeyboardAvoidingView makes the footer "jump" up */}
-      <KeyboardAvoidingView 
+      <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={{ flex: 1 }}
+        keyboardVerticalOffset={0}
       >
-        <ScrollView 
-          style={styles.content} 
-          contentContainerStyle={styles.scrollContent}
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={s.scroll}
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          <TextInput
-            style={styles.textInput}
-            placeholder="Enter Ingredients (e.g. Sugar, Palm Oil, Red 40...)"
-            placeholderTextColor="#9CA3AF"
-            value={textValue}
-            onChangeText={setTextValue}
-            multiline
-            textAlignVertical="top"
-          />
+          <Text style={[s.label, { color: colors.textSecondary }]}>
+            Paste or type an ingredient list, separated by commas.
+          </Text>
+
+          <View style={[s.inputBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <TextInput
+              style={[s.input, { color: colors.text }]}
+              placeholder="e.g. Sugar, Palm Oil, Red 40, Sodium Nitrite…"
+              placeholderTextColor={colors.textTertiary}
+              value={text}
+              onChangeText={(v) => { setText(v); if (error) setError(null); }}
+              multiline
+              textAlignVertical="top"
+              autoFocus
+            />
+          </View>
+
+          {text.length > 0 && (
+            <TouchableOpacity onPress={() => setText("")} style={s.clearRow}>
+              <Text style={[s.clearText, { color: colors.textTertiary }]}>Clear</Text>
+            </TouchableOpacity>
+          )}
         </ScrollView>
 
-        {/* Footer Area */}
-        <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
+        {/* Bottom */}
+        <View style={[s.bottom, { paddingBottom: insets.bottom + 12, borderTopColor: colors.border, backgroundColor: colors.bg }]}>
+          {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
           <TouchableOpacity
-            onPress={sendText}
-            style={[styles.button, styles.primary, isUploading && styles.shutterDisabled]}
-            disabled={isUploading}
+            onPress={submit}
+            disabled={loading}
+            style={[s.submitBtn, { backgroundColor: colors.accent }, loading && { opacity: 0.6 }]}
+            activeOpacity={0.85}
           >
-            {isUploading ? (
+            {loading ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.buttonTextPrimary}>Analyze</Text>
+              <Text style={s.submitText}>Analyze</Text>
             )}
           </TouchableOpacity>
         </View>
@@ -122,82 +132,33 @@ export default function TextEntryScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    backgroundColor: "#000" 
-  },
+const s = StyleSheet.create({
+  root: { flex: 1 },
   header: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: "#000",
+    paddingBottom: 12,
+    borderBottomWidth: 1,
   },
-  backButton: {
-    padding: 8,
-    marginRight: 8,
-  },
-  backIcon: {
-    color: "#FFFFFF",
-    fontSize: 24,
-    fontWeight: "bold",
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#F3F4F6",
-    flex: 1,
-    textAlign: "center",
-  },
-  headerSpacer: {
-    width: 40,
-  },
-  content: {
-    flex: 1,
-    padding: 16,
-  },
-  scrollContent: {
-    flexGrow: 1,
-  },
-  textInput: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "500",
-    borderColor: "#333",
-    borderWidth: 1.5,
-    borderRadius: 16,
-    padding: 20,
-    minHeight: 250,
-    backgroundColor: "#111", // Slightly lighter than background to see the box
-  },
-  footer: {
+  headerTitle: { fontSize: 16, fontWeight: "600" },
+  scroll: { padding: 20, flexGrow: 1 },
+  label: { fontSize: 14, lineHeight: 20, marginBottom: 12 },
+  inputBox: { borderWidth: 1, borderRadius: 12, overflow: "hidden" },
+  input: { fontSize: 15, lineHeight: 22, padding: 16, minHeight: 200 },
+  clearRow: { alignSelf: "flex-end", marginTop: 8 },
+  clearText: { fontSize: 13, fontWeight: "500" },
+  bottom: {
     paddingHorizontal: 16,
     paddingTop: 12,
-    marginBottom:20,
-    backgroundColor: "#000",
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
-  button: {
-    height: 56,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: "#0EA5E9",
-    shadowColor: "#0EA5E9",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
+  submitBtn: {
+    height: 48,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  primary: { 
-    backgroundColor: "#0EA5E9" 
-  },
-  shutterDisabled: { 
-    opacity: 0.6 
-  },
-  buttonTextPrimary: { 
-    color: "#ffffff", 
-    fontSize: 16, 
-    fontWeight: "700" 
-  },
+  submitText: { color: "#fff", fontSize: 16, fontWeight: "600" },
 });

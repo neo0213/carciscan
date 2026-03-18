@@ -1,352 +1,273 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View, Modal, TextInput  } from "react-native";
+import {
+  Alert, Modal, ScrollView, StatusBar, StyleSheet, Text,
+  TextInput, TouchableOpacity, View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { clearHistory, deleteHistory, getHistory, updateScanName } from "../database/historyDatabase";
+import { useTheme } from "../context/ThemeContext";
 
 type Ingredient = {
   id: number;
-  name: string; 
+  name: string;
   matched_name?: string | null;
-  prediction_details?: {
-    carcinogenicity_group?: string;
-    confidence?: number | null; 
-  };
-  confidence?: number | null; // optional top-level confidence
+  prediction_details?: { carcinogenicity_group?: string; confidence?: number | null };
+  confidence?: number | null;
 };
-
-// type Scan = {
-//   id: number;
-//   scan_date: string;
-//   ingredients: Ingredient[];
-//   ocr_text?: string;
-//   api_result?: any;
-// };
 
 type Scan = {
   id: number;
   scan_name?: string;
   scan_date: string;
   ingredients: Ingredient[];
-  ocr_text?: string;
-  api_result?: any;
 };
 
 export default function HistoryScreen() {
   const [history, setHistory] = useState<Scan[]>([]);
-  const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set());
+  const [open, setOpen] = useState<Set<number>>(new Set());
   const router = useRouter();
-
+  const { colors, isDark } = useTheme();
+  const insets = useSafeAreaInsets();
   const [editVisible, setEditVisible] = useState(false);
   const [editText, setEditText] = useState("");
   const [editingId, setEditingId] = useState<number | null>(null);
 
- const getGroupLabel = (group: string) => {
-  const g = String(group).toLowerCase();
-  if (g.includes('1')) return 'CARCINOGENIC';
-  if (g.includes('2a') || g.includes('2b') || g.includes('2')) return 'LIKELY CARCINOGENIC';
-  if (g.includes('3')) return 'NOT LIKELY CARCINOGENIC';
-  return 'UNKNOWN';
-};
-
-
-  const getPredictionColor = (prediction?: string) => {
-    const safePrediction = String(prediction || "").toLowerCase();
-    switch (safePrediction) {
-    case 'carcinogenic':
-      return '#EF4444'; // Red
-    case 'likely carcinogenic':
-      return '#F59E0B'; // Orange
-    case 'not likely carcinogenic':
-      return '#10B981'; // Green
-    default:
-      return '#6B7280'; // Gray for unknown
-    }
+  const riskLabel = (group: string) => {
+    const g = String(group).toLowerCase();
+    if (g.includes("1")) return "Carcinogenic";
+    if (g.includes("2a") || g.includes("2b") || g.includes("2")) return "Possibly";
+    if (g.includes("3")) return "Not likely";
+    return "Unknown";
   };
 
-  const parseIngredients = (ingredients: string | null): Ingredient[] => {
-    if (!ingredients) return [];
-    try { return JSON.parse(ingredients); } catch { return []; }
+  const riskStyle = (label: string) => {
+    if (label === "Carcinogenic") return { fg: colors.danger, bg: colors.dangerLight };
+    if (label === "Possibly") return { fg: colors.warning, bg: colors.warningLight };
+    if (label === "Not likely") return { fg: colors.safe, bg: colors.safeLight };
+    return { fg: colors.muted, bg: colors.mutedLight };
   };
 
- const handleEditName = (id: number) => {
-  setEditingId(id);
-  setEditVisible(true);
-};
-
-  const loadHistory = () => {
+  const load = () => {
     const data = getHistory();
-    const parsed: Scan[] = data.map((item: any) => ({
-      id: item.id,
-      scan_name: item.scan_name,
-      scan_date: item.scan_date,
-      ingredients: parseIngredients(item.ingredients),
-      ocr_text: item.ocr_text,
-      api_result: item.api_result ? JSON.parse(item.api_result) : null
-    }));
-    setHistory(parsed);
+    setHistory(
+      data.map((r: any) => ({
+        id: r.id,
+        scan_name: r.scan_name,
+        scan_date: r.scan_date,
+        ingredients: r.ingredients ? JSON.parse(r.ingredients) : [],
+      })),
+    );
   };
 
-     useEffect(() => { loadHistory(); }, []);
+  useEffect(load, []);
 
-    const saveScanName = () => {
-      if (!editText || editingId === null) return;
-
-      updateScanName(editingId, editText);
-      setEditVisible(false);
-      setEditText("");
-      loadHistory();
-    };
+  const worstRisk = (scan: Scan) => {
+    const det = scan.ingredients.filter((i) => !!i.matched_name);
+    if (!det.length) return null;
+    const labels = det.map((i) => riskLabel(String(i.prediction_details?.carcinogenicity_group ?? "")));
+    if (labels.includes("Carcinogenic")) return "Carcinogenic";
+    if (labels.includes("Possibly")) return "Possibly";
+    return "Not likely";
+  };
 
   const toggleItem = (id: number) => {
-    const newSet = new Set(expandedItems);
-    newSet.has(id) ? newSet.delete(id) : newSet.add(id);
-    setExpandedItems(newSet);
-  };
-
-  const handleDeleteOne = (id: number) => {
-    Alert.alert("Delete Scan", "Delete this scan?", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Delete", style: "destructive", onPress: () => { deleteHistory(id); loadHistory(); } },
-    ]);
-  };
-
-  const handleClearAll = () => {
-    Alert.alert("Clear History", "Delete all?", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Clear All", style: "destructive", onPress: () => { clearHistory(); setHistory([]); } },
-    ]);
+    const s = new Set(open);
+    s.has(id) ? s.delete(id) : s.add(id);
+    setOpen(s);
   };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.push("/")} style={styles.backButton}>
-          <Text style={styles.backText}>← Back</Text>
+    <View style={[s.root, { backgroundColor: colors.bg, paddingTop: insets.top }]}>
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
+
+      {/* Header */}
+      <View style={[s.header, { borderBottomColor: colors.border }]}>
+        <TouchableOpacity onPress={() => router.push("/")} hitSlop={12}>
+          <Ionicons name="chevron-back" size={24} color={colors.textSecondary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>History</Text>
-        <TouchableOpacity onPress={handleClearAll}>
-          <Text style={styles.clearAllText}>Clear All</Text>
-        </TouchableOpacity>
+        <Text style={[s.headerTitle, { color: colors.text }]}>History</Text>
+        {history.length > 0 ? (
+          <TouchableOpacity
+            onPress={() =>
+              Alert.alert("Clear all?", "This can't be undone.", [
+                { text: "Cancel", style: "cancel" },
+                { text: "Clear", style: "destructive", onPress: () => { clearHistory(); setHistory([]); } },
+              ])
+            }
+            hitSlop={12}
+          >
+            <Text style={[s.clearText, { color: colors.danger }]}>Clear</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={{ width: 24 }} />
+        )}
       </View>
 
       {history.length > 0 ? (
-        <ScrollView style={styles.list}>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={s.list} showsVerticalScrollIndicator={false}>
           {history.map((scan) => {
-            const isExpanded = expandedItems.has(scan.id);
+            const isOpen = open.has(scan.id);
+            const worst = worstRisk(scan);
+            const rs = worst ? riskStyle(worst) : null;
+            const detected = scan.ingredients.filter((i) => !!i.matched_name);
+
             return (
               <TouchableOpacity
                 key={scan.id}
-                style={styles.historyCard}
+                activeOpacity={0.7}
                 onPress={() => toggleItem(scan.id)}
-                activeOpacity={0.8}
+                style={[s.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
               >
-             <View style={styles.scanHeader}>
-                <Text style={styles.scanTitle}>
-                  {scan.scan_name || `Scan on ${new Date(scan.scan_date).toLocaleString()}`}
-                </Text>
+                <View style={s.cardTop}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[s.scanName, { color: colors.text }]} numberOfLines={1}>
+                      {scan.scan_name || new Date(scan.scan_date).toLocaleDateString()}
+                    </Text>
+                    <Text style={[s.scanMeta, { color: colors.textTertiary }]}>
+                      {new Date(scan.scan_date).toLocaleString()} · {detected.length}/{scan.ingredients.length} detected
+                    </Text>
+                  </View>
+                  <View style={s.cardRight}>
+                    {rs && worst && (
+                      <View style={[s.pill, { backgroundColor: rs.bg }]}>
+                        <Text style={[s.pillText, { color: rs.fg }]}>{worst}</Text>
+                      </View>
+                    )}
+                    <Ionicons name={isOpen ? "chevron-up" : "chevron-down"} size={16} color={colors.textTertiary} />
+                  </View>
+                </View>
 
-                <TouchableOpacity
-                  style={styles.editBtn}
-                  onPress={() => handleEditName(scan.id)}
-                >
-                  <Text style={styles.editText}>Edit</Text>
-                </TouchableOpacity>
-              </View>
+                {isOpen && (
+                  <View style={[s.cardBody, { borderTopColor: colors.border }]}>
+                    {scan.ingredients.map((item, idx) => {
+                      const label = item.matched_name
+                        ? riskLabel(String(item.prediction_details?.carcinogenicity_group ?? ""))
+                        : "Unknown";
+                      const is = riskStyle(label);
 
-              <Text style={styles.scanSubtitle}>
-                {scan.ingredients.length} ingredients analyzed
-              </Text>
-
-                {isExpanded && scan.ingredients.map((item, idx) => {
-                  const isUndetected = !item.matched_name;
-                  const group = item.prediction_details?.carcinogenicity_group ?? 'unknown';
-                  const label = isUndetected ? 'UNDETECTED' : getGroupLabel(String(group));
-                  const color = isUndetected ? '#374151' : getPredictionColor(label);
-                  
-                  return (
-                        <View key={idx} style={styles.ingredientRow}>
-
-                          {/* TOP ROW */}
-                          <View style={styles.ingredientTopRow}>
-                            <Text style={styles.ingredientName}>
-                              {(item.name || "Unknown").toUpperCase()}
-                            </Text>
-                              <Modal visible={editVisible} transparent animationType="fade">
-                                <View style={styles.modalOverlay}>
-                                  <View style={styles.modalBox}>
-                                    <Text style={styles.modalTitle}>Rename Scan</Text>
-
-                                    <TextInput
-                                      style={styles.modalInput}
-                                      placeholder="Enter scan name"
-                                      placeholderTextColor="#9CA3AF"
-                                      value={editText}
-                                      onChangeText={setEditText}
-                                    />
-
-                                    <View style={styles.modalButtons}>
-                                      <TouchableOpacity
-                                        style={styles.cancelBtn}
-                                        onPress={() => setEditVisible(false)}
-                                      >
-                                        <Text style={styles.cancelText}>Cancel</Text>
-                                      </TouchableOpacity>
-
-                                      <TouchableOpacity
-                                        style={styles.saveBtn}
-                                        onPress={saveScanName}
-                                      >
-                                        <Text style={styles.saveText}>Save</Text>
-                                      </TouchableOpacity>
-                                    </View>
-                                  </View>
-                                </View>
-                              </Modal>
-                            <View style={[styles.predictionBadge, { backgroundColor: color }]}>
-                              <Text style={styles.predictionText}>{label}</Text>
-                            </View>
+                      return (
+                        <View key={idx} style={s.ingredientRow}>
+                          <Text style={[s.ingredientName, { color: item.matched_name ? colors.text : colors.textTertiary }]} numberOfLines={1}>
+                            {item.name}
+                          </Text>
+                          <View style={[s.miniPill, { backgroundColor: is.bg }]}>
+                            <Text style={[s.miniPillText, { color: is.fg }]}>{label}</Text>
                           </View>
+                        </View>
+                      );
+                    })}
 
-                          {item.matched_name && (
-                            <Text style={styles.matchedName}>Matched to: {item.matched_name}</Text>
-                          )}
-                        {!isUndetected && (() => {
-                          const raw = item.prediction_details?.confidence ?? item.confidence ?? null;
-                          if (raw === null || raw === undefined) return null;
-
-                          const num = parseFloat(String(raw)); // convert string or number safely
-                          if (isNaN(num)) return null; // skip if not a number
-
-                          const percent = num <= 1 ? num * 100 : num;
-
-                          return (
-                            <Text style={styles.detail}>
-                              Confidence: {percent.toFixed(1)}%
-                            </Text>
-                          );
-                        })()}
+                    <View style={[s.cardActions, { borderTopColor: colors.border }]}>
+                      <TouchableOpacity
+                        onPress={() => { setEditingId(scan.id); setEditText(scan.scan_name ?? ""); setEditVisible(true); }}
+                        style={s.cardAction}
+                      >
+                        <Text style={[s.cardActionText, { color: colors.accent }]}>Rename</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() =>
+                          Alert.alert("Delete?", "Remove this scan?", [
+                            { text: "Cancel", style: "cancel" },
+                            { text: "Delete", style: "destructive", onPress: () => { deleteHistory(scan.id); load(); } },
+                          ])
+                        }
+                        style={s.cardAction}
+                      >
+                        <Text style={[s.cardActionText, { color: colors.danger }]}>Delete</Text>
+                      </TouchableOpacity>
                     </View>
-                  );
-                })}
-
-                {isExpanded && (
-                  <>
-                    <TouchableOpacity onPress={() => handleDeleteOne(scan.id)} style={styles.deleteBtnContainer}>
-                      <Text style={styles.deleteText}>Delete Scan</Text>
-                    </TouchableOpacity>
-                  </>
+                  </View>
                 )}
               </TouchableOpacity>
             );
           })}
         </ScrollView>
       ) : (
-        <View style={styles.empty}><Text style={styles.emptyText}>No history found.</Text></View>
+        <View style={s.empty}>
+          <Text style={[s.emptyTitle, { color: colors.text }]}>No scans yet</Text>
+          <Text style={[s.emptyDesc, { color: colors.textTertiary }]}>
+            Scan a product label to see results here.
+          </Text>
+        </View>
       )}
+
+      {/* Rename modal */}
+      <Modal visible={editVisible} transparent animationType="fade">
+        <View style={[s.overlay, { backgroundColor: colors.overlay }]}>
+          <View style={[s.modal, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Text style={[s.modalTitle, { color: colors.text }]}>Rename scan</Text>
+            <TextInput
+              style={[s.modalInput, { borderColor: colors.border, color: colors.text, backgroundColor: colors.surface }]}
+              placeholder="Enter a name"
+              placeholderTextColor={colors.textTertiary}
+              value={editText}
+              onChangeText={setEditText}
+              autoFocus
+            />
+            <View style={s.modalBtns}>
+              <TouchableOpacity
+                onPress={() => { setEditVisible(false); setEditText(""); }}
+                style={[s.modalBtn, { borderColor: colors.border, borderWidth: 1 }]}
+              >
+                <Text style={[s.modalBtnText, { color: colors.textSecondary }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => {
+                  if (editingId != null && editText) { updateScanName(editingId, editText); }
+                  setEditVisible(false); setEditText(""); load();
+                }}
+                style={[s.modalBtn, { backgroundColor: colors.accent }]}
+              >
+                <Text style={[s.modalBtnText, { color: "#fff" }]}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#0B1220" },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 16, borderBottomWidth: 1, borderBottomColor: "#1F2937" },
-  backButton: { padding: 8 },
-  backText: { color: "#60A5FA", fontWeight: "600" },
-  headerTitle: { color: "#F3F4F6", fontSize: 18, fontWeight: "700" },
-  clearAllText: { color: "#EF4444", fontWeight: "700" },
-  list: { padding: 16 },
-  historyCard: { backgroundColor: "#1F2937", borderRadius: 12, padding: 16, marginBottom: 12 },
-  scanTitle: { color: "#F3F4F6", fontSize: 15, fontWeight: "700" },
-  scanSubtitle: { color: "#9CA3AF", fontSize: 12, marginTop: 2 },
-  ingredientName: { color: "#F3F4F6", fontWeight: "600", fontSize: 14, marginBottom: 4 },
-  predictionBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, alignSelf: "flex-start" },
-  predictionText: { color: "#FFF", fontSize: 10, fontWeight: "800" },
-  matchedName: { color: '#9CA3AF', fontSize: 13, fontStyle: 'italic', marginBottom: 4 },
-  detail: { color: '#D1D5DB', fontSize: 12, marginTop: 4 },
-  deleteBtnContainer: { marginTop: 15, paddingTop: 10, borderTopWidth: 1, borderTopColor: "#374151" },
-  deleteText: { color: "#EF4444", fontWeight: "700", textAlign: "center" },
-  empty: { flex: 1, justifyContent: "center", alignItems: "center" },
-  emptyText: { color: "#9CA3AF", fontSize: 16 },
-  ingredientRow: { marginTop: 12, paddingBottom: 8, borderBottomWidth: 0.5, borderBottomColor: "#374151" },
-  viewResultsBtn:{ marginTop:10, backgroundColor:"#0EA5E9", padding:10, borderRadius:8 },
-  viewResultsText:{ color:"#fff", fontWeight:"700", textAlign:"center" },
-  ingredientTopRow:{
-  flexDirection:"row",
-  justifyContent:"space-between",
-  alignItems:"flex-start"
-},
-scanHeader:{
-  flexDirection:"row",
-  justifyContent:"space-between",
-  alignItems:"center"
-},
-
-editBtn:{
-  backgroundColor:"#126db7ff",
-  paddingHorizontal:10,
-  paddingVertical:4,
-  borderRadius:6
-},
-
-editText:{
-  color:"#fff",
-  fontSize:12,
-  fontWeight:"600"
-},
-
-modalOverlay:{
-  flex:1,
-  backgroundColor:"rgba(0,0,0,0.6)",
-  justifyContent:"center",
-  alignItems:"center"
-},
-
-modalBox:{
-  backgroundColor:"#1F2937",
-  padding:20,
-  borderRadius:10,
-  width:"80%"
-},
-
-modalTitle:{
-  color:"#F3F4F6",
-  fontSize:18,
-  fontWeight:"700",
-  marginBottom:15
-},
-
-modalInput:{
-  borderWidth:1,
-  borderColor:"#374151",
-  borderRadius:8,
-  padding:10,
-  color:"#fff",
-  marginBottom:15
-},
-
-modalButtons:{
-  flexDirection:"row",
-  justifyContent:"flex-end",
-  gap:10
-},
-
-cancelBtn:{
-  padding:8
-},
-
-cancelText:{
-  color:"#9CA3AF"
-},
-
-saveBtn:{
-  backgroundColor:"#126db7ff",
-  paddingHorizontal:15,
-  paddingVertical:8,
-  borderRadius:6
-},
-
-saveText:{
-  color:"#fff",
-  fontWeight:"600"
-}
+const s = StyleSheet.create({
+  root: { flex: 1 },
+  header: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1,
+  },
+  headerTitle: { fontSize: 16, fontWeight: "600" },
+  clearText: { fontSize: 14, fontWeight: "500" },
+  list: { padding: 16, paddingBottom: 40 },
+  card: { borderRadius: 10, borderWidth: 1, marginBottom: 8, overflow: "hidden" },
+  cardTop: { flexDirection: "row", alignItems: "center", padding: 14, gap: 12 },
+  scanName: { fontSize: 14, fontWeight: "600" },
+  scanMeta: { fontSize: 12, marginTop: 2 },
+  cardRight: { flexDirection: "row", alignItems: "center", gap: 8 },
+  pill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  pillText: { fontSize: 11, fontWeight: "600" },
+  cardBody: { paddingHorizontal: 14, paddingTop: 8, paddingBottom: 6, borderTopWidth: StyleSheet.hairlineWidth },
+  ingredientRow: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingVertical: 6, gap: 8,
+  },
+  ingredientName: { fontSize: 13, flex: 1 },
+  miniPill: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
+  miniPillText: { fontSize: 10, fontWeight: "600" },
+  cardActions: {
+    flexDirection: "row", gap: 16, paddingVertical: 10, marginTop: 4,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  cardAction: {},
+  cardActionText: { fontSize: 13, fontWeight: "600" },
+  empty: { flex: 1, justifyContent: "center", alignItems: "center", gap: 8, padding: 32 },
+  emptyTitle: { fontSize: 18, fontWeight: "600" },
+  emptyDesc: { fontSize: 14, textAlign: "center" },
+  overlay: { flex: 1, justifyContent: "center", alignItems: "center" },
+  modal: { width: "85%", borderRadius: 14, padding: 20, borderWidth: 1 },
+  modalTitle: { fontSize: 16, fontWeight: "600", marginBottom: 14 },
+  modalInput: { borderWidth: 1, borderRadius: 8, padding: 12, fontSize: 15, marginBottom: 16 },
+  modalBtns: { flexDirection: "row", gap: 8 },
+  modalBtn: { flex: 1, height: 44, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  modalBtnText: { fontWeight: "600", fontSize: 15 },
 });

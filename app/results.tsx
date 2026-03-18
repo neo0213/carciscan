@@ -1,184 +1,142 @@
 import { Ionicons } from "@expo/vector-icons";
-import Entypo from '@expo/vector-icons/Entypo';
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Linking, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import {
+  ActivityIndicator, KeyboardAvoidingView, Linking,
+  Platform, ScrollView, StatusBar, StyleSheet,
+  Text, TextInput, TouchableOpacity, View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ErrorBanner } from "../components/ErrorBanner";
 import { insertHistory } from "../database/historyDatabase";
-
+import { useTheme } from "../context/ThemeContext";
 
 export default function ResultsScreen() {
-  const { apiResult, resultText } = useLocalSearchParams<{ 
-    apiResult?: string; 
-    resultText?: string; 
-  }>();
+  const { apiResult, resultText } = useLocalSearchParams<{ apiResult?: string; resultText?: string }>();
   const router = useRouter();
-  const [expandedIngredients, setExpandedIngredients] = useState<Set<number>>(new Set());
+  const { colors, isDark } = useTheme();
+  const insets = useSafeAreaInsets();
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [showUndetected, setShowUndetected] = useState(false);
+  const [ocrText, setOcrText] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [reanalyzeError, setReanalyzeError] = useState<string | null>(null);
 
-  const parsedApiResult = apiResult ? JSON.parse(apiResult) : null;
-  const [ocrTextEditable, setOcrTextEditable] = useState<string>(parsedApiResult?.ocr_result?.text ?? '');
-  const [isSubmittingText, setIsSubmittingText] = useState(false);
-  const [historySaved, setHistorySaved] = useState(false);
+  const parsed = apiResult ? JSON.parse(apiResult) : null;
 
-  //save data in database for history 
-useEffect(() => {
-  const saveToHistory = async () => {
-    // 1. Ensure data exists
-    // 2. Ensure we haven't already saved this specific result
-    if (parsedApiResult?.ingredients && !historySaved) {
-      try {
-        await insertHistory(parsedApiResult.ingredients);
-        setHistorySaved(true); 
-      } catch (error) {
-        console.error("Failed to save to history:", error);
-      }
+  useEffect(() => {
+    if (parsed?.ocr_result?.text) setOcrText(parsed.ocr_result.text);
+  }, [apiResult]);
+
+  useEffect(() => {
+    if (parsed?.ingredients && !saved) {
+      try { insertHistory(parsed.ingredients); } catch {}
+      setSaved(true);
     }
+  }, [parsed, saved]);
+
+  const toggle = (i: number) => {
+    const s = new Set(expanded);
+    s.has(i) ? s.delete(i) : s.add(i);
+    setExpanded(s);
   };
 
-  saveToHistory();
-}, [parsedApiResult, historySaved]); // Trigger whenever result changes
-
-  const toggleIngredient = (index: number) => {
-    const newExpanded = new Set(expandedIngredients);
-    if (newExpanded.has(index)) {
-      newExpanded.delete(index);
-    } else {
-      newExpanded.add(index);
-    }
-    setExpandedIngredients(newExpanded);
+  // Risk helpers
+  const riskLabel = (group: string) => {
+    const g = String(group).toLowerCase();
+    if (g.includes("1")) return "Carcinogenic";
+    if (g.includes("2a") || g.includes("2b") || g.includes("2")) return "Possibly";
+    if (g.includes("3")) return "Not likely";
+    return "Unknown";
   };
 
-
-    const [expandedUndetected, setExpandedUndetected] = useState<Set<number>>(new Set());
-
-    const toggleUndetected = (index: number) => {
-        const newExpanded = new Set(expandedUndetected);
-        if (newExpanded.has(index)) newExpanded.delete(index);
-        else newExpanded.add(index);
-        setExpandedUndetected(newExpanded);
-    };
-
-    const [undetectedExpanded, setUndetectedExpanded] = useState(false);
-
-    const toggleUndetectedSection = () => {
-        setUndetectedExpanded(prev => !prev);
-    };
-
-  const getPredictionColor = (prediction: string) => {
-    switch (prediction.toLowerCase()) {
-    case 'carcinogenic':
-      return '#EF4444'; // Red
-    case 'likely carcinogenic':
-      return '#F59E0B'; // Orange
-    case 'not likely carcinogenic':
-      return '#10B981'; // Green
-    default:
-      return '#6B7280'; // Gray for unknown
-    }
+  const riskStyle = (label: string) => {
+    if (label === "Carcinogenic") return { fg: colors.danger, bg: colors.dangerLight };
+    if (label === "Possibly") return { fg: colors.warning, bg: colors.warningLight };
+    if (label === "Not likely") return { fg: colors.safe, bg: colors.safeLight };
+    return { fg: colors.muted, bg: colors.mutedLight };
   };
 
-  // const getGroupBadgeColor = (group: string) => {
-  //   const g = String(group).toLowerCase();
-  //   if (g.includes('1')) return '#EF4444';
-  //   if (g.includes('2b') || g.includes('2b'.toLowerCase()) || g.includes('2')) return '#F59E0B';
-  //   if (g.includes('3')) return '#10B981';
-  //   return '#6B7280';
-  // };
+  // Summary
+  const getSummary = () => {
+    if (!parsed?.ingredients) return null;
+    const det = parsed.ingredients.filter((i: any) => !!i.matched_name);
+    if (!det.length) return null;
+    const labels = det.map((i: any) => riskLabel(String(i?.prediction_details?.carcinogenicity_group ?? "")));
+    if (labels.includes("Carcinogenic")) return { level: "High risk", desc: "Carcinogenic substances found", ...riskStyle("Carcinogenic") };
+    if (labels.includes("Possibly")) return { level: "Moderate risk", desc: "Possibly carcinogenic substances found", ...riskStyle("Possibly") };
+    return { level: "Low risk", desc: "No carcinogenic substances detected", ...riskStyle("Not likely") };
+  };
 
-//to change the label of detected ingredients
-  const getGroupLabel = (group: string) => {
-  const g = group.toLowerCase();
+  const summary = getSummary();
 
-  if (g.includes('1')) return 'Carcinogenic';
-  if (g.includes('2a')) return 'LIKELY CARCINOGENIC';
-  if (g.includes('2b')) return 'LIKELY CARCINOGENIC';
-  if (g.includes('2')) return 'LIKELY CARCINOGENIC'
-  if (g.includes('3')) return 'NOT LIKELY CARCINOGENIC';
+  const renderCard = (item: any, idx: number) => {
+    const isOpen = expanded.has(idx);
+    const group = item?.prediction_details?.carcinogenicity_group ?? item?.status ?? "Unknown";
+    const label = riskLabel(String(group));
+    const rs = riskStyle(label);
 
-  return 'UNKNOWN';
-};
-
-  const renderIngredientCard = (ingredient: any, index: number) => {
-    const isExpanded = expandedIngredients.has(index);
-    // New API returns prediction details under `prediction_details`
-    const group = ingredient?.prediction_details?.carcinogenicity_group ?? ingredient?.status ?? 'Unknown';
-    //const prediction = String(group);
-
-      const prediction = getGroupLabel(String(group));
-
-      const predictionColor = prediction === 'NOT LIKELY CARCINOGENIC' ? '#10B981'
-        : prediction === 'LIKELY CARCINOGENIC' ? '#F59E0B'
-        : prediction === 'Carcinogenic' ? '#EF4444'
-        : '#6B7280';
-
-    
     return (
       <TouchableOpacity
-        key={index}
-        style={styles.ingredientCard}
-        onPress={() => toggleIngredient(index)}
+        key={idx}
+        onPress={() => toggle(idx)}
         activeOpacity={0.7}
+        style={[st.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
       >
-        <View style={styles.ingredientHeader}>
-          <View style={styles.ingredientNameContainer}>
-            <View style={{flex:1}}>
-              <Text style={styles.ingredientName}>{String(ingredient.name).toUpperCase()}</Text>
-              {ingredient.matched_name ? (
-                <Text style={styles.matchedName}>({ingredient.matched_name})</Text>
-              ) : null}
-            </View>
-            <View style={[styles.predictionBadge, { backgroundColor: predictionColor }]}>
-              <Text style={styles.predictionText}>{String(prediction).toUpperCase()}</Text>
-            </View>
+        <View style={st.cardTop}>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={[st.name, { color: colors.text }]} numberOfLines={1}>
+              {String(item.name)}
+            </Text>
+            {item.matched_name && (
+              <Text style={[st.matched, { color: colors.textTertiary }]}>
+                Matched: {item.matched_name}
+              </Text>
+            )}
           </View>
-          <Ionicons 
-            name={isExpanded ? "chevron-up" : "chevron-down"} 
-            size={20} 
-            color="#9CA3AF" 
-          />
+          <View style={[st.pill, { backgroundColor: rs.bg }]}>
+            <Text style={[st.pillText, { color: rs.fg }]}>{label}</Text>
+          </View>
         </View>
-        
-        {isExpanded && (
-          <View style={styles.ingredientDetails}>
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Confidence:</Text>
-              {
-                (() => {
-                  const raw = ingredient?.prediction_details?.confidence ?? ingredient?.confidence ?? null;
-                  if (raw === null || raw === undefined) return <Text style={styles.detailValue}>N/A</Text>;
-                  const num = Number(raw);
-                  const percent = num <= 1 ? (num * 100) : num; // support 0-1 or 0-100
-                  return <Text style={styles.detailValue}>{percent.toFixed(1)}%</Text>;
-                })()
-              }
-            </View>
 
-            {ingredient?.prediction_details?.evidence && (
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Evidence:</Text>
-                <Text style={styles.detailValue}>{ingredient.prediction_details.evidence}</Text>
+        {isOpen && (
+          <View style={[st.details, { borderTopColor: colors.border }]}>
+            {(() => {
+              const raw = item?.prediction_details?.confidence ?? item?.confidence;
+              if (raw == null) return null;
+              const pct = (Number(raw) <= 1 ? Number(raw) * 100 : Number(raw)).toFixed(1);
+              return (
+                <View style={st.detailRow}>
+                  <Text style={[st.detailLabel, { color: colors.textSecondary }]}>Confidence</Text>
+                  <View style={st.barTrack}>
+                    <View style={[st.barFill, { width: `${pct}%` as any, backgroundColor: rs.fg }]} />
+                  </View>
+                  <Text style={[st.detailVal, { color: colors.text }]}>{pct}%</Text>
+                </View>
+              );
+            })()}
+            {item?.prediction_details?.evidence && (
+              <View style={st.detailRow}>
+                <Text style={[st.detailLabel, { color: colors.textSecondary }]}>Evidence</Text>
+                <Text style={[st.detailVal, { color: colors.text, flex: 1 }]}>
+                  {item.prediction_details.evidence}
+                </Text>
               </View>
             )}
-
-            {ingredient?.matched_name && (
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Matched name:</Text>
-                <Text style={styles.detailValue}>{ingredient.matched_name}</Text>
-              </View>
-            )}
-
-            {ingredient?.pubchem_url && (
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>PubChem:</Text>
-                <TouchableOpacity onPress={() => openLink(ingredient.pubchem_url)} accessibilityRole="link" style={{flex: 1}}>
-                  <Text
-                    style={[styles.detailValue, styles.linkText]}
-                    numberOfLines={1}
-                    ellipsizeMode="tail"
-                  >
-                    {ingredient.pubchem_url}
-                  </Text>
-                </TouchableOpacity>
-              </View>
+            {item?.pubchem_url && (
+              <TouchableOpacity
+                style={st.detailRow}
+                onPress={() => {
+                  const u = String(item.pubchem_url).startsWith("http") ? item.pubchem_url : `https://${item.pubchem_url}`;
+                  Linking.openURL(u).catch(() => {});
+                }}
+              >
+                <Text style={[st.detailLabel, { color: colors.textSecondary }]}>PubChem</Text>
+                <Text style={[st.detailVal, { color: colors.accent }]} numberOfLines={1}>
+                  View →
+                </Text>
+              </TouchableOpacity>
             )}
           </View>
         )}
@@ -186,461 +144,265 @@ useEffect(() => {
     );
   };
 
-  async function submitEditedText() {
-    if (!ocrTextEditable || ocrTextEditable.trim().length === 0) {
-      Alert.alert('Validation', 'Please enter text to analyze.');
-      return;
-    }
-
+  const reanalyze = async () => {
+    if (!ocrText.trim()) { setReanalyzeError("Please enter some text to analyze."); return; }
+    setReanalyzeError(null);
     try {
-      setIsSubmittingText(true);
-      const rawEnv = process.env.EXPO_PUBLIC_API_URL || 'https://carciscan.edwardgarcia.site/'; // 'https://carciscan-api-production.up.railway.app/'
-      const endpoint = normalizePredictTextUrl(rawEnv);
-      const controller = new AbortController();
-      const id = setTimeout(() => controller.abort(), 60_000);
-
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: ocrTextEditable }),
-        signal: controller.signal
-      });
+      setSubmitting(true);
+      const base = process.env.EXPO_PUBLIC_API_URL || "https://carciscan.edwardgarcia.site/";
+      const url = new URL(Platform.OS === "android" ? base.replace("http://localhost", "http://10.0.2.2") : base);
+      if (!/\/api\/v2\/text\/?$/.test(url.pathname)) url.pathname = url.pathname.replace(/\/?$/, "/api/v2/text");
+      const c = new AbortController(); const id = setTimeout(() => c.abort(), 60_000);
+      const res = await fetch(url.toString(), { method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json" }, body: JSON.stringify({ ingredients: ocrText }), signal: c.signal });
       clearTimeout(id);
-
-      const contentType = res.headers.get('content-type') || '';
-      if (contentType.includes('application/json')) {
+      const ct = res.headers.get("content-type") || "";
+      if (ct.includes("application/json")) {
         const json = await res.json();
-        if (!res.ok) throw new Error(json?.message || 'Request failed');
-        router.replace({ pathname: '/results', params: { apiResult: JSON.stringify(json), resultText: JSON.stringify(json, null, 2) } });
+        if (!res.ok) throw new Error(json?.message || "Failed");
+        router.replace({ pathname: "/results", params: { apiResult: JSON.stringify(json), resultText: JSON.stringify(json, null, 2) } });
       } else {
-        const text = await res.text();
-        if (!res.ok) throw new Error(text || 'Request failed');
-        router.replace({ pathname: '/results', params: { resultText: text } });
+        const t = await res.text();
+        if (!res.ok) throw new Error(t || "Failed");
+        router.replace({ pathname: "/results", params: { resultText: t } });
       }
-    } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'Please try again.');
-    } finally {
-      setIsSubmittingText(false);
-    }
-  }
-
-  const openLink = async (url?: string) => {
-    if (!url) return;
-    try {
-      const u = String(url).startsWith('http') ? url : `https://${url}`;
-      await Linking.openURL(u);
-    } catch (e) {
-      Alert.alert('Unable to open link');
-    }
+    } catch (e: any) { setReanalyzeError(e?.message ?? "Something went wrong. Try again."); } finally { setSubmitting(false); }
   };
 
-  function normalizePredictTextUrl(input: string) {
-    try {
-      const url = new URL(translateLocalhostForEmulator(input));
-      if (!/\/api\/v2\/text\/?$/.test(url.pathname)) {
-        url.pathname = url.pathname.replace(/\/?$/, '/api/v2/text');
-      }
-      return url.toString();
-    } catch {
-      return input;
-    }
-  }
-
-  function translateLocalhostForEmulator(input: string) {
-    if (Platform.OS === 'android') {
-      return input.replace('http://localhost', 'http://10.0.2.2').replace('http://127.0.0.1', 'http://10.0.2.2');
-    }
-    return input;
-  }
-
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Custom Header */}
-      <View style={styles.header}>
-        <TouchableOpacity 
-          onPress={() => router.back()} 
-          style={styles.backButton}
-          accessibilityLabel="Go back"
-        >
-          <Entypo name="chevron-left" size={24} color="#0B4C8C" />
+    <View style={[st.root, { backgroundColor: colors.bg }]}>
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
+
+      {/* Header */}
+      <View style={[st.header, { paddingTop: insets.top + 8, borderBottomColor: colors.border }]}>
+        <TouchableOpacity onPress={() => router.back()} hitSlop={12}>
+          <Ionicons name="chevron-back" size={24} color={colors.textSecondary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Analysis Results</Text>
-        <View style={styles.headerSpacer} />
+        <Text style={[st.headerTitle, { color: colors.text }]}>Results</Text>
+        <View style={{ width: 24 }} />
       </View>
 
-      <ScrollView style={styles.content} keyboardShouldPersistTaps="handled">
-        {parsedApiResult ? (
-          <View>
-                       {/*     practical advice  */}
-                      {parsedApiResult.practical_advice && (
-                          <View style={styles.adviceCard}>
-                              <Text style={styles.adviceTitle}>Practical Advice</Text>
-{/* 
-                              <Text style={[styles.detailValue, {marginBottom: 12}]}>
-                                  Category: {parsedApiResult.category}
-                              </Text> */}
-
-                              {/* Hazard */}
-                              <Text style={styles.hazardText}>
-                                  Hazard Level: {parsedApiResult.practical_advice.hazard_level}
-                              </Text>
-
-                              {/* Category Advice */}
-                              <Text style={styles.adviceLine}>
-                                  {parsedApiResult.practical_advice.category_advice}
-                              </Text>
-                          </View>
-                      )}
-
-
-
-            <Text style={styles.analysisComplete}>Analysis complete.</Text>
-            {parsedApiResult.processing_time && (
-              <Text style={styles.processingTime}>Processed in {parsedApiResult.processing_time.toFixed(2)}s</Text>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={st.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        {parsed ? (
+          <>
+            {/* Summary */}
+            {summary && (
+              <View style={[st.summary, { backgroundColor: summary.bg, borderColor: summary.bg }]}>
+                <View style={st.summaryRow}>
+                  <Text style={[st.summaryLevel, { color: summary.fg }]}>{summary.level}</Text>
+                  {parsed.processing_time != null && (
+                    <Text style={[st.time, { color: colors.textTertiary }]}>
+                      {parsed.processing_time.toFixed(2)}s
+                    </Text>
+                  )}
+                </View>
+                <Text style={[st.summaryDesc, { color: summary.fg }]}>{summary.desc}</Text>
+                {parsed.practical_advice?.category_advice && (
+                  <Text style={[st.advice, { color: colors.textSecondary }]}>
+                    {parsed.practical_advice.category_advice}
+                  </Text>
+                )}
+              </View>
             )}
 
-            {parsedApiResult.ingredients && parsedApiResult.ingredients.length > 0 && (() => {
-            //to make the detected carcinogen at the top of the list 
-              const getCarcinogenicPriority = (ingredient: any) => {
-              const group = String(
-                ingredient?.prediction_details?.carcinogenicity_group ??
-                ingredient?.status ??
-                ''
-              ).toLowerCase();
+            {(!parsed.ingredients || parsed.ingredients.length === 0) && (
+              <View style={[st.noneBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <Text style={[st.noneTitle, { color: colors.text }]}>No ingredients found</Text>
+                <Text style={[st.noneDesc, { color: colors.textSecondary }]}>
+                  We couldn't extract any ingredients from your input. Try re-scanning with better lighting, or enter the ingredients manually.
+                </Text>
+              </View>
+            )}
 
-              if (group.includes('1') || group.includes('carcinogenic')) return 0; // highest
-              if (group.includes('2a')) return 1;
-              if (group.includes('2b')) return 2;
-              if (group.includes('2')) return 3;
-              if (group.includes('3')) return 4;
-
-              return 5; // unknown / lowest
-            };
-              
-                  const all = parsedApiResult.ingredients || [];
-
-                  const detected = all
-                    .filter((i: any) => !!i.matched_name)
-                    .sort((a: any, b: any) =>
-                      getCarcinogenicPriority(a) - getCarcinogenicPriority(b)
-                    );
-
-                  const undetected = all.filter((i: any) => !i.matched_name);
-
+            {parsed.ingredients?.length > 0 && (() => {
+              const pri = (i: any) => {
+                const g = String(i?.prediction_details?.carcinogenicity_group ?? "").toLowerCase();
+                if (g.includes("1")) return 0;
+                if (g.includes("2a")) return 1;
+                if (g.includes("2b") || g.includes("2")) return 2;
+                if (g.includes("3")) return 3;
+                return 4;
+              };
+              const detected = parsed.ingredients.filter((i: any) => !!i.matched_name).sort((a: any, b: any) => pri(a) - pri(b));
+              const undetected = parsed.ingredients.filter((i: any) => !i.matched_name);
 
               return (
                 <>
-                  {detected.length > 0 && (
-                    <View style={styles.ingredientsSection}>
-                      <Text style={styles.sectionTitle}>Detected Ingredients</Text>
-                      {detected.map((ingredient: any, index: number) => renderIngredientCard(ingredient, index))}
+                  {detected.length === 0 && undetected.length > 0 && (
+                    <View style={[st.noneBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                      <Text style={[st.noneTitle, { color: colors.text }]}>No matches found</Text>
+                      <Text style={[st.noneDesc, { color: colors.textSecondary }]}>
+                        None of the {undetected.length} detected ingredient{undetected.length !== 1 ? "s" : ""} matched our database. They may be listed under different names — try entering them manually with alternate spellings.
+                      </Text>
+                      <TouchableOpacity
+                        onPress={() => setShowUndetected((p) => !p)}
+                        style={st.noneToggle}
+                      >
+                        <Text style={[st.noneToggleText, { color: colors.accent }]}>
+                          {showUndetected ? "Hide" : "Show"} ingredients
+                        </Text>
+                        <Ionicons name={showUndetected ? "chevron-up" : "chevron-down"} size={14} color={colors.accent} />
+                      </TouchableOpacity>
+                      {showUndetected && (
+                        <View style={st.noneList}>
+                          {undetected.map((item: any, idx: number) => (
+                            <Text key={idx} style={[st.noneItem, { color: colors.textSecondary, borderBottomColor: colors.border }]}>
+                              {String(item.name)}
+                            </Text>
+                          ))}
+                        </View>
+                      )}
                     </View>
                   )}
 
-                      {/* Undetected Ingredients */}
-                      {undetected.length > 0 && (
-                          <View style={styles.ingredientsSection}>
-                    <TouchableOpacity
-                        onPress={toggleUndetectedSection}
-                        activeOpacity={0.7}
-                        style={[styles.ingredientCard, { paddingVertical: 12 }]}
-                    >
-                        <View style={styles.ingredientHeader}>
-                            <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>
-                                Undetected Ingredients
-                            </Text>
-                            <Ionicons
-                                name={undetectedExpanded ? "chevron-up" : "chevron-down"}
-                                size={20}
-                                color="#9CA3AF"
-                            />
-                        </View>
-                    </TouchableOpacity>
+                  {detected.length > 0 && (
+                    <View style={st.section}>
+                      <View style={st.sectionHead}>
+                        <Text style={[st.sectionTitle, { color: colors.text }]}>Detected ingredients</Text>
+                        <Text style={[st.count, { color: colors.textTertiary }]}>{detected.length}</Text>
+                      </View>
+                      {detected.map((item: any, idx: number) => renderCard(item, idx))}
+                    </View>
+                  )}
 
-                    {undetectedExpanded && (
-                        <View style={{ marginTop: 12 }}>
-                            {undetected.map((ingredient: any, index: number) => (
-                                <View key={index} style={styles.ingredientCard}>
-                                    <View style={styles.ingredientNameContainer}>
-                                        <Text style={styles.ingredientName}>
-                                            {String(ingredient.name).toUpperCase()}
-                                        </Text>
-                                        <View style={styles.undetectedBadge}>
-                                            <Text style={styles.undetectedBadgeText}>
-                                                SYNONYM NOT FOUND IN DATABASE
-                                            </Text>
-                                        </View>
-                                    </View>
-                                    <View style={styles.ingredientDetails}>
-                                        <Text style={styles.detailValue}>
-                                            No synonym match found in the database. Consider checking spelling or using another common name.
-                                        </Text>
-                                    </View>
-                                </View>
-                            ))}
+                  {detected.length > 0 && undetected.length > 0 && (
+                    <View style={st.section}>
+                      <TouchableOpacity
+                        style={[st.collapseHead, { borderColor: colors.border }]}
+                        onPress={() => setShowUndetected((p) => !p)}
+                      >
+                        <Text style={[st.sectionTitle, { color: colors.textSecondary }]}>
+                          Not in database
+                        </Text>
+                        <View style={st.collapseRight}>
+                          <Text style={[st.count, { color: colors.textTertiary }]}>{undetected.length}</Text>
+                          <Ionicons name={showUndetected ? "chevron-up" : "chevron-down"} size={16} color={colors.textTertiary} />
                         </View>
-                    )}
-                </View>
-            )}
-                  </>
+                      </TouchableOpacity>
+                      {showUndetected && undetected.map((item: any, idx: number) => (
+                        <View key={idx} style={[st.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                          <Text style={[st.name, { color: colors.textSecondary }]}>{String(item.name)}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                </>
               );
             })()}
 
-            {parsedApiResult.ocr_result && (
-              <KeyboardAvoidingView
-                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 80}
-                style={styles.ocrSection}
-              >
-                <Text style={styles.sectionTitle}>OCR Text</Text>
-                <TextInput
-                  style={styles.ocrTextInput}
-                  value={ocrTextEditable}
-                  onChangeText={setOcrTextEditable}
-                  multiline
-                  textAlignVertical="top"
-                />
-
-                <View style={{marginTop: 12, marginBottom:20, flexDirection: 'row', justifyContent: 'flex-end'}}>
-                  <TouchableOpacity style={[styles.buttonSmall, styles.primarySmall]} onPress={submitEditedText} disabled={isSubmittingText}>
-                    {isSubmittingText ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonSmallText}>Re-analyze text</Text>}
-                  </TouchableOpacity>
+            {/* OCR edit */}
+            {parsed.ocr_result && (
+              <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} keyboardVerticalOffset={90}>
+                <View style={st.section}>
+                  <Text style={[st.sectionTitle, { color: colors.text, marginBottom: 8 }]}>OCR text</Text>
+                  {reanalyzeError && <ErrorBanner message={reanalyzeError} onDismiss={() => setReanalyzeError(null)} />}
+                  <View style={[st.ocrBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                    <TextInput
+                      style={[st.ocrInput, { color: colors.text }]}
+                      value={ocrText}
+                      onChangeText={setOcrText}
+                      multiline
+                      textAlignVertical="top"
+                      placeholderTextColor={colors.textTertiary}
+                    />
+                    <View style={[st.ocrFooter, { borderTopColor: colors.border }]}>
+                      <TouchableOpacity
+                        onPress={reanalyze}
+                        disabled={submitting}
+                        style={[st.reBtn, { backgroundColor: colors.accent }]}
+                      >
+                        {submitting ? <ActivityIndicator color="#fff" size="small" /> : <Text style={st.reBtnText}>Re-analyze</Text>}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
                 </View>
               </KeyboardAvoidingView>
             )}
-          </View>
+          </>
         ) : resultText ? (
-          <View style={styles.rawResultBox}>
-            <Text style={styles.rawResultTitle}>Raw API Response</Text>
-            <Text style={styles.rawResultText}>{resultText}</Text>
+          <View style={[st.rawBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Text style={[st.rawLabel, { color: colors.textSecondary }]}>Raw response</Text>
+            <Text style={[st.rawText, { color: colors.textTertiary }]}>{resultText}</Text>
           </View>
         ) : (
-          <View style={styles.noResults}>
-            <Text style={styles.noResultsText}>No analysis results available</Text>
+          <View style={st.empty}>
+            <Text style={[st.emptyText, { color: colors.textTertiary }]}>No results</Text>
           </View>
         )}
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    backgroundColor: "#0B1220" 
-  },
+const st = StyleSheet.create({
+  root: { flex: 1 },
   header: {
-    flexDirection: "row",
-      alignItems: "center",
-    marginTop: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1,
+  },
+  headerTitle: { fontSize: 16, fontWeight: "600" },
+  scroll: { padding: 16, paddingBottom: 48 },
+
+  // Summary
+  summary: { borderRadius: 12, padding: 16, marginBottom: 20, borderWidth: 1 },
+  summaryRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  summaryLevel: { fontSize: 18, fontWeight: "700" },
+  time: { fontSize: 12 },
+  summaryDesc: { fontSize: 14, marginTop: 4 },
+  advice: { fontSize: 13, marginTop: 8, lineHeight: 20 },
+
+  // No results
+  noneBox: {
+    borderRadius: 12, borderWidth: 1, padding: 20, marginBottom: 20,
+  },
+  noneTitle: { fontSize: 16, fontWeight: "600", marginBottom: 6 },
+  noneDesc: { fontSize: 14, lineHeight: 21 },
+  noneToggle: {
+    flexDirection: "row", alignItems: "center", gap: 4, marginTop: 14,
+  },
+  noneToggleText: { fontSize: 13, fontWeight: "600" },
+  noneList: { marginTop: 10, gap: 0 },
+  noneItem: {
+    fontSize: 13, paddingVertical: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#1F2937",
-    backgroundColor: "#0B1220"
   },
-  backButton: {
-    padding: 8,
-    marginRight: 8
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#F3F4F6",
-    flex: 1
-  },
-  headerSpacer: {
-    width: 40
-  },
-  content: {
-    flex: 1,
-    padding: 16
-  },
-  resultMessage: { 
-    color: "#D1D5DB", 
-    fontSize: 16,
-    marginBottom: 8,
-    textAlign: "center"
-  },
-  processingTime: { 
-    color: "#9CA3AF", 
-    fontSize: 14, 
-    marginBottom: 24,
-    textAlign: "center"
-  },
-  ingredientsSection: { 
-    marginBottom: 24 
-  },
-  sectionTitle: { 
-    color: "#E5E7EB", 
-    fontWeight: "600", 
-    fontSize: 20, 
-    marginBottom: 16 
-  },
-  adviceCard: {
-    backgroundColor: '#111827',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#0F1724'
-  },
-  adviceTitle: {
-    color: '#F3F4F6',
-    fontWeight: '700',
-    fontSize: 18,
-    marginBottom: 8
-  },
-  adviceLine: {
 
-        color: '#D1D5DB',
-      fontSize: 14,
-      lineHeight: 22,
-      marginTop: 6,
-      textAlign: 'justify'
-    },
-    hazardText: {
-        fontSize: 14,
-        fontWeight: '600',
-        marginBottom: 6,
-        color: '#F59E0B' // default orange (can be dynamic)
-    },
+  // Sections
+  section: { marginBottom: 20 },
+  sectionHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
+  sectionTitle: { fontSize: 14, fontWeight: "600" },
+  count: { fontSize: 13 },
+  collapseHead: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingVertical: 12, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1, marginBottom: 6,
+  },
+  collapseRight: { flexDirection: "row", alignItems: "center", gap: 6 },
 
-  analysisComplete: {
-    color: '#E5E7EB',
-    fontSize: 16,
-    textAlign: 'center',
-    marginBottom: 4
-  },
-  buttonSmall: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 },
-  primarySmall: { backgroundColor: '#0EA5E9' },
-  buttonSmallText: { color: '#fff', fontWeight: '600' },
-  ingredientCard: { 
-    backgroundColor: "#1F2937", 
-    borderRadius: 12, 
-    marginBottom: 12, 
-    padding: 16,
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2
-  },
-  ingredientHeader: { 
-    flexDirection: "row", 
-    justifyContent: "space-between", 
-    alignItems: "center" 
-  },
-  ingredientNameContainer: { 
-    flex: 1, 
-    flexDirection: "row", 
-    alignItems: "center", 
-    gap: 12 
-  },
-  ingredientName: { 
-    color: "#F3F4F6", 
-    fontWeight: "600", 
-    fontSize: 16, 
-    flex: 1 
-  },
-  matchedName: {
-    color: '#9CA3AF',
-    fontSize: 13,
-    marginTop: 4
-  },
-  predictionBadge: { 
-    paddingHorizontal: 12, 
-    paddingVertical: 6, 
-    borderRadius: 16,
-    minWidth: 90,
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  predictionText: { 
-    color: "#FFFFFF", 
-    fontSize: 12, 
-    fontWeight: "700" 
-  },
-  ingredientDetails: { 
-    marginTop: 12, 
-    paddingTop: 12, 
-    borderTopWidth: StyleSheet.hairlineWidth, 
-    borderTopColor: "#374151" 
-  },
-  detailRow: { 
-    flexDirection: "row", 
-    marginBottom: 8 
-  },
-  detailLabel: { 
-    color: "#9CA3AF", 
-    fontSize: 14, 
-    fontWeight: "600", 
-    minWidth: 100 
-  },
-  detailValue: { 
-    color: "#D1D5DB", 
-    fontSize: 14, 
-    flex: 1,
-    flexShrink: 1,
-    flexWrap: 'wrap'
-  },
-  linkText: {
-    color: '#60A5FA',
-    textDecorationLine: 'underline',
-    flexShrink: 1,
-    flexWrap: 'wrap'
-  },
-  ocrSection: { 
-    marginBottom: 24 
-  },
-  ocrTextInput: {
-    color: "#D1D5DB",
-    fontSize: 14,
-    backgroundColor: "#1F2937",
-    padding: 12,
-    borderRadius: 8,
-    fontFamily: "monospace",
-    lineHeight: 20,
-    minHeight: 120
-  },
-  undetectedBadge: {
-    backgroundColor: '#374151',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    minWidth: 140
-  },
-  undetectedBadgeText: {
-    color: '#E5E7EB',
-    fontSize: 12,
-    fontWeight: '700'
-  },
-  rawResultBox: {
-    backgroundColor: "#1F2937",
-    borderRadius: 8,
-    padding: 16
-  },
-  rawResultTitle: {
-    color: "#E5E7EB",
-    fontWeight: "600",
-    fontSize: 16,
-    marginBottom: 8
-  },
-  rawResultText: {
-    color: "#D1D5DB",
-    fontSize: 12,
-    fontFamily: "monospace"
-  },
-  noResults: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingVertical: 48
-  },
-  noResultsText: {
-    color: "#9CA3AF",
-    fontSize: 16
-  }
+  // Cards
+  card: { borderRadius: 10, borderWidth: 1, marginBottom: 6, overflow: "hidden" },
+  cardTop: { flexDirection: "row", alignItems: "center", padding: 14, gap: 12 },
+  name: { fontSize: 14, fontWeight: "500" },
+  matched: { fontSize: 12 },
+  pill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  pillText: { fontSize: 11, fontWeight: "600" },
+  details: { paddingHorizontal: 14, paddingBottom: 14, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, gap: 8 },
+  detailRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  detailLabel: { fontSize: 12, width: 72 },
+  detailVal: { fontSize: 13 },
+  barTrack: { flex: 1, height: 3, borderRadius: 2, backgroundColor: "rgba(128,128,128,0.15)", overflow: "hidden" },
+  barFill: { height: 3, borderRadius: 2 },
+
+  // OCR
+  ocrBox: { borderRadius: 10, borderWidth: 1, overflow: "hidden" },
+  ocrInput: { fontSize: 13, lineHeight: 20, padding: 14, minHeight: 100 },
+  ocrFooter: { flexDirection: "row", justifyContent: "flex-end", padding: 10, borderTopWidth: StyleSheet.hairlineWidth },
+  reBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 },
+  reBtnText: { color: "#fff", fontSize: 13, fontWeight: "600" },
+
+  // Raw
+  rawBox: { borderRadius: 10, borderWidth: 1, padding: 14 },
+  rawLabel: { fontSize: 13, fontWeight: "600", marginBottom: 8 },
+  rawText: { fontSize: 12, fontFamily: "monospace" },
+
+  empty: { paddingVertical: 80, alignItems: "center" },
+  emptyText: { fontSize: 15 },
 });
