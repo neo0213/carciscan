@@ -12,7 +12,7 @@ import { insertHistory } from "../database/historyDatabase";
 import { useTheme } from "../context/ThemeContext";
 
 export default function ResultsScreen() {
-  const { apiResult, resultText } = useLocalSearchParams<{ apiResult?: string; resultText?: string }>();
+  const { apiResult, resultText, fromHistory } = useLocalSearchParams<{ apiResult?: string; resultText?: string; fromHistory?: string }>();
   const router = useRouter();
   const { colors, isDark } = useTheme();
   const insets = useSafeAreaInsets();
@@ -30,11 +30,17 @@ export default function ResultsScreen() {
   }, [apiResult]);
 
   useEffect(() => {
-    if (parsed?.ingredients && !saved) {
-      try { insertHistory(parsed.ingredients); } catch {}
+    if (parsed?.ingredients && !saved && fromHistory !== "true") {
+      try {
+        insertHistory(
+          parsed.ingredients,
+          parsed.ocr_result?.text ?? null,
+          parsed,
+        );
+      } catch {}
       setSaved(true);
     }
-  }, [parsed, saved]);
+  }, [parsed, saved, fromHistory]);
 
   const toggle = (i: number) => {
     const s = new Set(expanded);
@@ -108,7 +114,7 @@ export default function ResultsScreen() {
               const pct = (Number(raw) <= 1 ? Number(raw) * 100 : Number(raw)).toFixed(1);
               return (
                 <View style={st.detailRow}>
-                  <Text style={[st.detailLabel, { color: colors.textSecondary }]}>Confidence</Text>
+                  <Text style={[st.detailLabel, { color: colors.text }]}>Confidence</Text>
                   <View style={st.barTrack}>
                     <View style={[st.barFill, { width: `${pct}%` as any, backgroundColor: rs.fg }]} />
                   </View>
@@ -118,7 +124,7 @@ export default function ResultsScreen() {
             })()}
             {item?.prediction_details?.evidence && (
               <View style={st.detailRow}>
-                <Text style={[st.detailLabel, { color: colors.textSecondary }]}>Evidence</Text>
+                <Text style={[st.detailLabel, { color: colors.text }]}>Evidence</Text>
                 <Text style={[st.detailVal, { color: colors.text, flex: 1 }]}>
                   {item.prediction_details.evidence}
                 </Text>
@@ -132,7 +138,7 @@ export default function ResultsScreen() {
                   Linking.openURL(u).catch(() => {});
                 }}
               >
-                <Text style={[st.detailLabel, { color: colors.textSecondary }]}>PubChem</Text>
+                <Text style={[st.detailLabel, { color: colors.text }]}>PubChem</Text>
                 <Text style={[st.detailVal, { color: colors.accent }]} numberOfLines={1}>
                   View →
                 </Text>
@@ -339,38 +345,38 @@ const st = StyleSheet.create({
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1,
   },
-  headerTitle: { fontSize: 16, fontWeight: "600" },
+  headerTitle: { fontSize: 17, fontWeight: "600" },
   scroll: { padding: 16, paddingBottom: 48 },
 
   // Summary
   summary: { borderRadius: 12, padding: 16, marginBottom: 20, borderWidth: 1 },
   summaryRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  summaryLevel: { fontSize: 18, fontWeight: "700" },
-  time: { fontSize: 12 },
-  summaryDesc: { fontSize: 14, marginTop: 4 },
-  advice: { fontSize: 13, marginTop: 8, lineHeight: 20 },
+  summaryLevel: { fontSize: 22, fontWeight: "700" },
+  time: { fontSize: 14 },
+  summaryDesc: { fontSize: 16, marginTop: 4 },
+  advice: { fontSize: 15, marginTop: 8, lineHeight: 22 },
 
   // No results
   noneBox: {
     borderRadius: 12, borderWidth: 1, padding: 20, marginBottom: 20,
   },
-  noneTitle: { fontSize: 16, fontWeight: "600", marginBottom: 6 },
-  noneDesc: { fontSize: 14, lineHeight: 21 },
+  noneTitle: { fontSize: 18, fontWeight: "600", marginBottom: 6 },
+  noneDesc: { fontSize: 15, lineHeight: 23 },
   noneToggle: {
     flexDirection: "row", alignItems: "center", gap: 4, marginTop: 14,
   },
-  noneToggleText: { fontSize: 13, fontWeight: "600" },
+  noneToggleText: { fontSize: 15, fontWeight: "600" },
   noneList: { marginTop: 10, gap: 0 },
   noneItem: {
-    fontSize: 13, paddingVertical: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    fontSize: 15, paddingVertical: 8,
+    borderBottomWidth: 1,
   },
 
   // Sections
   section: { marginBottom: 20 },
   sectionHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
-  sectionTitle: { fontSize: 14, fontWeight: "600" },
-  count: { fontSize: 13 },
+  sectionTitle: { fontSize: 16, fontWeight: "600" },
+  count: { fontSize: 15 },
   collapseHead: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     paddingVertical: 12, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1, marginBottom: 6,
@@ -380,29 +386,29 @@ const st = StyleSheet.create({
   // Cards
   card: { borderRadius: 10, borderWidth: 1, marginBottom: 6, overflow: "hidden" },
   cardTop: { flexDirection: "row", alignItems: "center", padding: 14, gap: 12 },
-  name: { fontSize: 14, fontWeight: "500" },
-  matched: { fontSize: 12 },
+  name: { fontSize: 16, fontWeight: "500" },
+  matched: { fontSize: 14 },
   pill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  pillText: { fontSize: 11, fontWeight: "600" },
-  details: { paddingHorizontal: 14, paddingBottom: 14, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, gap: 8 },
+  pillText: { fontSize: 13, fontWeight: "600" },
+  details: { paddingHorizontal: 14, paddingBottom: 14, paddingTop: 10, borderTopWidth: 1, gap: 10 },
   detailRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  detailLabel: { fontSize: 12, width: 72 },
-  detailVal: { fontSize: 13 },
-  barTrack: { flex: 1, height: 3, borderRadius: 2, backgroundColor: "rgba(128,128,128,0.15)", overflow: "hidden" },
-  barFill: { height: 3, borderRadius: 2 },
+  detailLabel: { fontSize: 14, width: 84, fontWeight: "600" },
+  detailVal: { fontSize: 15, fontWeight: "600" },
+  barTrack: { flex: 1, height: 4, borderRadius: 2, backgroundColor: "rgba(128,128,128,0.15)", overflow: "hidden" },
+  barFill: { height: 4, borderRadius: 2 },
 
   // OCR
   ocrBox: { borderRadius: 10, borderWidth: 1, overflow: "hidden" },
-  ocrInput: { fontSize: 13, lineHeight: 20, padding: 14, minHeight: 100 },
-  ocrFooter: { flexDirection: "row", justifyContent: "flex-end", padding: 10, borderTopWidth: StyleSheet.hairlineWidth },
+  ocrInput: { fontSize: 15, lineHeight: 22, padding: 14, minHeight: 100 },
+  ocrFooter: { flexDirection: "row", justifyContent: "flex-end", padding: 10, borderTopWidth: 1 },
   reBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 },
-  reBtnText: { color: "#fff", fontSize: 13, fontWeight: "600" },
+  reBtnText: { color: "#fff", fontSize: 15, fontWeight: "600" },
 
   // Raw
   rawBox: { borderRadius: 10, borderWidth: 1, padding: 14 },
-  rawLabel: { fontSize: 13, fontWeight: "600", marginBottom: 8 },
-  rawText: { fontSize: 12, fontFamily: "monospace" },
+  rawLabel: { fontSize: 15, fontWeight: "600", marginBottom: 8 },
+  rawText: { fontSize: 14, fontFamily: "monospace" },
 
   empty: { paddingVertical: 80, alignItems: "center" },
-  emptyText: { fontSize: 15 },
+  emptyText: { fontSize: 16 },
 });
