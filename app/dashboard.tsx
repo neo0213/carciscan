@@ -106,19 +106,13 @@ export default function Dashboard() {
     highRiskItem: highestRisk
   });
 };
-  // // SVG Logic
-  // const size = 120;
-  // const strokeWidth = 12;
-  // const radius = (size - strokeWidth) / 2;
-  // const circumference = radius * 2 * Math.PI;
-  // const strokeDashoffset = circumference - (circumference * stats.riskPercentage) / 100;
-
-  const size = 120;
-const strokeWidth = 12;
-const radius = (size - strokeWidth) / 2;
-const circumference = radius * 2 * Math.PI;
-// Use stats.riskPercentage directly here
-const strokeDashoffset = circumference - (circumference * stats.riskPercentage) / 100;
+  // SVG Logic
+    const size = 120;
+    const strokeWidth = 12;
+    const radius = (size - strokeWidth) / 2;
+    const circumference = radius * 2 * Math.PI;
+    // Use stats.riskPercentage directly here
+    const strokeDashoffset = circumference - (circumference * stats.riskPercentage) / 100;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.bg, paddingTop: insets.top }]}>

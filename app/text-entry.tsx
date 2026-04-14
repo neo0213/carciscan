@@ -69,12 +69,21 @@ export default function TextEntryScreen() {
 
       {/* Header */}
       <View style={[s.header, { paddingTop: insets.top + 8, borderBottomColor: colors.border }]}>
-        <TouchableOpacity onPress={() => router.back()} hitSlop={12}>
+        <TouchableOpacity 
+          onPress={() => {
+            if (router.canGoBack()) {
+              router.back();
+            } else {
+              router.replace("/"); // Fallback to Home if there's no history
+            }
+          }} 
+          hitSlop={12}
+        >
           <Ionicons name="chevron-back" size={24} color={colors.textSecondary} />
         </TouchableOpacity>
-        <Text style={[s.headerTitle, { color: colors.text }]}>Enter ingredients</Text>
-        <View style={{ width: 24 }} />
-      </View>
+            <Text style={[s.headerTitle, { color: colors.text }]}>Enter ingredients</Text>
+            <View style={{ width: 24 }} />
+        </View>
 
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}

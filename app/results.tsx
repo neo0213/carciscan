@@ -24,7 +24,7 @@ export default function ResultsScreen() {
   const [reanalyzeError, setReanalyzeError] = useState<string | null>(null);
 
   const parsed = apiResult ? JSON.parse(apiResult) : null;
-
+  
   useEffect(() => {
     if (parsed?.ocr_result?.text) setOcrText(parsed.ocr_result.text);
   }, [apiResult]);
@@ -77,12 +77,14 @@ export default function ResultsScreen() {
 
   const summary = getSummary();
 
+
   const renderCard = (item: any, idx: number) => {
     const isOpen = expanded.has(idx);
     const group = item?.prediction_details?.carcinogenicity_group ?? item?.status ?? "Unknown";
     const label = riskLabel(String(group));
     const rs = riskStyle(label);
 
+    const riskDetails = item?.risk_details;
     return (
       <TouchableOpacity
         key={idx}
@@ -130,6 +132,25 @@ export default function ResultsScreen() {
                 </Text>
               </View>
             )}
+
+      {/*  Risk Details / Exposures Section */}
+            {riskDetails?.exposures && riskDetails.exposures.length > 0 && (
+              <View style={st.exposureContainer}>
+                <Text style={[st.detailLabel, { color: colors.text, marginBottom: 4 }]}>Exposure Risk</Text>
+                {riskDetails.exposures.map((exp: any, eIdx: number) => (
+                  <View key={eIdx} style={[st.exposureRow, { backgroundColor: colors.bg }]}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[st.exposureRoute, { color: colors.text }]}>{exp.route}</Text>
+                      <Text style={[st.exposureState, { color: colors.textSecondary }]}>{exp.state}</Text>
+                    </View>
+                    <Text style={[st.exposureValue, { color: colors.accent }]}>
+                      {exp.value} {exp.unit}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
             {item?.pubchem_url && (
               <TouchableOpacity
                 style={st.detailRow}
@@ -144,6 +165,7 @@ export default function ResultsScreen() {
                 </Text>
               </TouchableOpacity>
             )}
+
           </View>
         )}
       </TouchableOpacity>
@@ -174,6 +196,36 @@ export default function ResultsScreen() {
     } catch (e: any) { setReanalyzeError(e?.message ?? "Something went wrong. Try again."); } finally { setSubmitting(false); }
   };
 
+  
+//legend
+
+const renderLegend = () => (
+   <View style={[st.legendBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+      <View style={st.legendRow}>
+        <View style={[st.legendPill, { backgroundColor: colors.dangerLight }]}>
+          <Text style={[st.legendPillText, { color: colors.danger }]}>Carcinogenic</Text>
+        </View>
+        <Text style={[st.legendDesc, { color: colors.textSecondary }]}>Known to cause cancer in humans.</Text>
+      </View>
+
+      <View style={st.legendRow}>
+        <View style={[st.legendPill, { backgroundColor: colors.warningLight }]}>
+          <Text style={[st.legendPillText, { color: colors.warning }]}>Possibly</Text>
+        </View>
+        <Text style={[st.legendDesc, { color: colors.textSecondary }]}>Probably or possibly carcinogenic. 
+          Evidence is limited or not conclusive, but caution is advised.</Text>
+      </View>
+
+      <View style={st.legendRow}>
+        <View style={[st.legendPill, { backgroundColor: colors.safeLight }]}>
+          <Text style={[st.legendPillText, { color: colors.safe }]}>Not Likely</Text>
+        </View>
+        <Text style={[st.legendDesc, { color: colors.textSecondary }]}>Not classifiable as carcinogenic.</Text>
+      </View>
+    </View>
+  );
+
+
   return (
     <View style={[st.root, { backgroundColor: colors.bg }]}>
       <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
@@ -187,6 +239,7 @@ export default function ResultsScreen() {
         <View style={{ width: 24 }} />
       </View>
 
+    
       <ScrollView style={{ flex: 1 }} contentContainerStyle={st.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         {parsed ? (
           <>
@@ -209,6 +262,9 @@ export default function ResultsScreen() {
                 )}
               </View>
             )}
+
+             <Text style={[st.legendTitle, { color: colors.text }]}>Understanding Risk Groups</Text>
+                  {renderLegend()}
 
             {(!parsed.ingredients || parsed.ingredients.length === 0) && (
               <View style={[st.noneBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -392,7 +448,7 @@ const st = StyleSheet.create({
   pillText: { fontSize: 13, fontWeight: "600" },
   details: { paddingHorizontal: 14, paddingBottom: 14, paddingTop: 10, borderTopWidth: 1, gap: 10 },
   detailRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  detailLabel: { fontSize: 14, width: 84, fontWeight: "600" },
+  detailLabel: { fontSize: 14, width: 100, fontWeight: "600" },
   detailVal: { fontSize: 15, fontWeight: "600" },
   barTrack: { flex: 1, height: 4, borderRadius: 2, backgroundColor: "rgba(128,128,128,0.15)", overflow: "hidden" },
   barFill: { height: 4, borderRadius: 2 },
@@ -411,4 +467,64 @@ const st = StyleSheet.create({
 
   empty: { paddingVertical: 80, alignItems: "center" },
   emptyText: { fontSize: 16 },
+
+
+  // Exposure details
+  exposureContainer: {
+    marginTop: 4,
+    gap: 6,
+  },
+  exposureRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 10,
+    borderRadius: 8,
+    justifyContent: "space-between",
+  },
+  exposureRoute: {
+    fontSize: 14,
+    fontWeight: "600",
+    textTransform: "capitalize",
+  },
+  exposureState: {
+    fontSize: 12,
+  },
+  exposureValue: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+
+  legendBox: {
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 20,
+  },
+  legendTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    marginBottom: 12,
+    letterSpacing: 0.5,
+  },
+  legendRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 10,
+    gap: 12,
+  },
+  legendPill: {
+    width: 85,
+    paddingVertical: 4,
+    borderRadius: 6,
+    alignItems: "center",
+  },
+  legendPillText: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  legendDesc: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+  },
 });

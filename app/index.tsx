@@ -27,7 +27,6 @@ export default function Index() {
       default: return <DashboardView />;
     }
   };
-
   return (
     // 3. Apply dynamic background color to the main container
     <View style={[styles.container, { backgroundColor: colors.bg }]}>

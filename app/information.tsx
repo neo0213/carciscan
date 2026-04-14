@@ -88,7 +88,6 @@ export default function Information() {
                 {item.means}
               </Text>
             </View>
-
           </View>
         ))}
       </ScrollView>
@@ -106,7 +105,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderBottomWidth: 1,
     marginBottom: 15,
-    marginTop: 0,
+    marginTop: 25,
   },
   headerTitle: { fontSize: 17, fontWeight: "600", textAlign: "center" },
   clearText: { fontSize: 15, fontWeight: "500" },
